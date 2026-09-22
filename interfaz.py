@@ -1,4 +1,5 @@
 import tkinter as tk
+from tkinter import ttk
 
 class compilador:
   def __init__(self, root):
@@ -52,6 +53,54 @@ class compilador:
     # boton para compilar
     self.boton = tk.Button(self.pantalla_compi, text = "Compilar", width = 15, font = ("Helvetica", 10), pady = 5)
     self.boton.pack(pady = 20)
+
+    # parte derecha de la ventana
+
+    self.pantalla_derecha = tk.Frame(pantalla_inicio)
+    self.pantalla_derecha.grid(row = 0, column = 1, sticky = "nsew")
+    self.pantalla_derecha.rowconfigure(0, weight = 1)
+    self.pantalla_derecha.rowconfigure(1, weight = 1)
+    self.pantalla_derecha.columnconfigure(0, weight = 1)
+
+    # apartado tabla de símbolos
+
+    self.tabla_simbolos = tk.Frame(self.pantalla_derecha, bd = 2, relief = "solid")
+    self.tabla_simbolos.grid(row = 0, column = 0, sticky = "nsew", pady = (0, 10))
+
+    # titulo del apartado
+    titulo_simbolo = tk.Label(self.tabla_simbolos, text = "Tabla de símbolos", font = ("Helvetica", 11))
+    titulo_simbolo.pack(pady = 5)
+
+    # creacion de las columnas de la tabla de símbolos
+    def_columnas = ("Lexema", "Tipo de dato")
+    self.columnas_simbolos = ttk.Treeview(self.tabla_simbolos, columns = def_columnas, show = "headings", height =5)
+    self.columnas_simbolos.heading("Lexema", text = "Lexema")
+    self.columnas_simbolos.heading("Tipo de dato", text = "Tipo de dato")
+    self.columnas_simbolos.column("Lexema", width = 150, anchor = "center")
+    self.columnas_simbolos.column("Tipo de dato", width = 150, anchor = "center")
+    self.columnas_simbolos.pack(fill = "both", expand = True, padx = 10, pady = 10)
+
+    # apartado tabla de errores
+
+    self.tabla_errores = tk.Frame(self.pantalla_derecha, bd = 2, relief = "solid")
+    self.tabla_errores.grid(row = 1, column = 0, sticky = "nsew")
+
+    # titulo tabla de errores
+    titulo_errores = tk.Label(self.tabla_errores, text = "Tabla de errores", font = ("Helvetica", 11))
+    titulo_errores.pack(pady = 5)
+
+    # creación de las columnas de la tabla de errores
+    def_colum_error = ("Token error", "Línea error", "Lexema", "Descripción")
+    self.columnas_errores = ttk.Treeview(self.tabla_errores, columns = def_colum_error, show = "headings", height = 5)
+    self.columnas_errores.heading("Token error", text = "Token error")
+    self.columnas_errores.heading("Línea error", text = "Línea error")
+    self.columnas_errores.heading("Lexema", text = "Lexema")
+    self.columnas_errores.heading("Descripción", text = "Descripción")
+    self.columnas_errores.column("Token error", width = 50, anchor = "center")
+    self.columnas_errores.column("Línea error", width = 50, anchor = "center")
+    self.columnas_errores.column("Lexema", width = 50, anchor = "center")
+    self.columnas_errores.column("Descripción", width = 200, anchor = "center")
+    self.columnas_errores.pack(fill = "both", expand = True, padx = 10, pady = 10)
 
     #luego agrego la lógica de esto teehee
   def sincronizar_scroll(self, *args):
