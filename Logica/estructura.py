@@ -7,7 +7,7 @@ class Lexema:
         self.linea = linea
     #La forma en la que imprimimos el texto en un formato en especifico
     def __repr__(self):
-        return f"Lexema({self.nombre}, {self.tipo}, linea = {self.linea})"
+        return f"Nombre: {self.nombre}, Tipo: {self.tipo}"
 
 #Clase que define los atributos de los errores
 class ErrorSem:
@@ -18,7 +18,7 @@ class ErrorSem:
         self.descripcion = descripcion
     #Formato de impresion de error
     def __repr__(self):
-        return f"Error (linea = {self.linea}, tipo = {self.tipo_error}, '{self.descripcion}')"
+        return f"linea = {self.linea}, tipo = {self.tipo_error}, '{self.descripcion}')"
 
 #Clase que dfine las acciones de la tabla de simbolos
 class TablaSimbolos:
@@ -45,7 +45,7 @@ class TablaSimbolos:
 
     #Muestra la tabla en una lista
     def tabla(self):
-        return list(self.simbolos.values)
+        return list(self.simbolos.values())
 
 #Clase que define la tabla de errores
 class TablaError:
@@ -55,10 +55,10 @@ class TablaError:
         self.error = []
     #Agrega al array en base alos atributos definidos en la clase ErrorSem
     def error_agregar(self, linea, descripcion, tipo_error):
-        self.errores.append(ErrorSem(linea, descripcion, tipo_error))
+        self.error.append(ErrorSem(linea, tipo_error, descripcion))
     #Define si exsiten errores en base al tamaño del arreglo
     def si_existe_error(self):
-        return len(self.errores) > 0
+        return len(self.error) > 0
     #Devuelve en lista los errores
     def tabla_err(self):
         return list(self.error)
