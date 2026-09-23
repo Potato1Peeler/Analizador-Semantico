@@ -1,15 +1,22 @@
 from estructura import TablaError, TablaSimbolos
 from analizador import analizador, obtener_lexemas
 
-codigo_ejemplo = """
-ETR !bar1 = 5 
-ETR !bar2 
-RN !bar3 = 1.1 
+codigo_ejemplo =  """
+ETR !bar1 = 10;
+RN !bar2 = 2.5;
+CDNC !bar3 = "hola";
+ETR !bar4, !bar5, !bar6;
+RN !bar7;
 
-
-!bar1 = 15
-!bar2 = !bar1 - 10
-"homeless"
+!bar4 = 20;
+!bar7 = 8;
+!bar5 = !bar1 + !bar4;
+!bar3 = !bar3 + " mundo";
+!bar6 = !bar1 / 2;
+!bar2 = !bar1 + !bar7;
+!bar9 = 5;
+ETR !bar1 = 99;
+"Homeless"
 """
 
 ts = TablaSimbolos()
