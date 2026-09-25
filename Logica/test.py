@@ -1,30 +1,38 @@
 from estructura import TablaError, TablaSimbolos
 from analizador import analizador, obtener_lexemas
 
-codigo_ejemplo =  """
-ETR !bar1 = 10;
-RN !bar2 = 2.5;
+codigo_ejemplo = '''ETR !bar1 = 5;
+RN !bar2 = 3.5;
 CDNC !bar3 = "hola";
-ETR !bar4, !bar5, !bar6;
-RN !bar7;
 
-!bar4 = 20;
-!bar7 = 8;
-!bar5 = !bar1 + !bar4;
-!bar3 = !bar3 + " mundo";
-!bar6 = !bar1 / 2;
-!bar2 = !bar1 + !bar7;
-!bar9 = 5;
-ETR !bar1 = 99;
-"Homeless"
-"""
+for(ETR !bar4 = 0; !bar4<5; !bar4++){
+!bar1 = !bar1 + 1;
+}
+
+for(RN !bar5 = 0.0; !bar5<=10.0; !bar5 = !bar5 + 2.5){
+for(ETR !bar6 = 0; !bar6<!bar1; !bar6++){
+!bar2 = !bar2 + 1.0;
+}
+}
+
+!bar4 = 1;
+!bar6 = 1;
+
+for(CDNC !bar7 = "a"; !bar7<"z"; !bar7++){
+}
+
+for(ETR !bar8 = 10; !bar8>0; !bar8--){
+}
+'''
+
 
 ts = TablaSimbolos()
 te = TablaError()
 
 analizador(codigo_ejemplo, ts, te)
+lineas_con_error = {error.linea for error in te.tabla_err()}
+lexemas = obtener_lexemas(codigo_ejemplo, ts, lineas_con_error)
 
-lexemas = obtener_lexemas(codigo_ejemplo, ts)
 
 print("=== TABLA DE LEXEMAS ===")
 print(f'{"lexema":<10} | tipo de dato')

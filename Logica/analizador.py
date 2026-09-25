@@ -85,7 +85,9 @@ PATRON_LEXEMAS = re.compile(r"""
 """, re.VERBOSE)
  
 #Funcion para construir la tabla de simbolos
-def obtener_lexemas(codigo, tabla_simbolos):
+def obtener_lexemas(codigo, tabla_simbolos, lineas_con_error=None):
+    if lineas_con_error is None:
+        lineas_con_error = set()
     #Guarda en un diccionario los lexemas ya vistos para no repetir
     vistos = {} 
 
@@ -94,6 +96,10 @@ def obtener_lexemas(codigo, tabla_simbolos):
         categoria = match.lastgroup
         texto = match.group()
 
+        numero_linea = codigo.count("\n", 0, match.start()) + 1
+
+        if numero_linea in lineas_con_error:
+            continue
         #No consideramos los espacios vacios como lexemas asi q los ignora
         if categoria == "ESPACIO":
             continue  
@@ -135,29 +141,32 @@ def tipo_operando(texto, tabla_simbolos):
         return simbolo.tipo if simbolo else None
     return tipo_dato(texto)
 
-def evaluar_expresion(operando1, operador, operando2, tabla_simbolos):
+OPERADORES_INVALIDOS = {
+    "ETR": {"/"},
+    "RN": set(),
+    "CDNC": {"*", "/"},
+}
+
+def evaluar_expresion(tipo_destino, operando1, operador, operando2, tabla_simbolos):
+    errores = []
+
     tipo1 = tipo_operando(operando1, tabla_simbolos)
-    tipo2 = tipo_operando(operando2, tabla_simbolos)
-
     if tipo1 is None:
-        return None, f"El operando {operando1} no fue declarado o noes un valor valido"
+        errores.append((operando1, f"El operando {operando1} no fue declarado o no es un valor valida"))
+    elif not tipos_compatibles(tipo_destino, tipo1):
+        errores.append((operando1, f"El operando '{operando1}' es de tipo {tipo1}, no compatible con {tipo_destino}"))
+
+    tipo2 = tipo_operando(operando2, tabla_simbolos)
     if tipo2 is None:
-        return None, f"El operando {operando2} no fue declarado o no es un valor valido"
+        errores.append((operando2, f"El operando '{operando2}' no fue declarado o no es un valor valido"))
+    elif not tipos_compatibles(tipo_destino, tipo2):
+        errores.append((operando2, f"El operando '{operando2}' es de tipo {tipo2}, no compatible con {tipo_destino}"))
 
-    if tipo1 == "ETR" and tipo2 == "ETR":
-        if operador =="/":
-            return None, "El operador / no es valido en ETR"
-        return "ETR", None
+    if operador in OPERADORES_INVALIDOS.get(tipo_destino, set()):
+        errores.append((operador, f"El operador '{operador}' no es compatible con {tipo_destino}"))
 
-    if tipo1 == "RN" and tipo2 == "RN":
-        return "RN", None
+    return errores
 
-    if tipo1 == "CDNC" and tipo2 == "CDNC":
-        if operador in ("+", "-"):
-            return "CDNC", None
-        return None, f"El operador {operador} no es compatible con CDNC"
-        
-    return None, f"Tipos incompatibles en la expresion"
 
 def tipos_compatibles(tipo_esperado, tipo_valor):
     if tipo_valor is None:
@@ -168,26 +177,108 @@ def tipos_compatibles(tipo_esperado, tipo_valor):
         return True
     return False
 
+for_header = r"^for\s*\(\s*(.+?)\s*;\s*(.+?)\s*;\s*(.+?)\s*\)\s*\{\s*$"
+declaracion_for = rf"^(ETR|RN|CDNC)\s+({expresion_regular})\s*=\s*(.+)$"
+asignacion_for = rf"^({expresion_regular})\s*=\s*(.+)$"
+patron_incremento_corto = rf"^({expresion_regular})\s*(\+\+|--)$"
+operador_comparacion = r"<=|>=|==|!=|<|>"
+patron_condicion = rf"^({operando})\s*({operador_comparacion})\s*({operando})$"
+
+COMPARADORES_INVALIDOS = {
+    "ETR": set(),
+    "RN": set(),
+    "CDNC": {"<", ">", "<=", ">="},
+}
+
+def evaluar_condicion(tipo_destino, operando1, operador, operando2, tabla_simbolos):
+    errores = []
+    tipo1 = tipo_operando(operando1, tabla_simbolos)
+    if tipo1 is None:
+        errores.append((operando1, f"El operando '{operando1}' no fue declarado o no es un valor valido"))
+    elif not tipos_compatibles(tipo_destino, tipo1):
+        errores.append((operando1, f"El operando '{operando1}' es de tipo {tipo1}, no compatible con {tipo_destino}"))
+
+    tipo2 = tipo_operando(operando2, tabla_simbolos)
+    if tipo2 is None:
+        errores.append((operando2, f"El operando '{operando2}' no fue declarado o no es un valor valido"))
+    elif not tipos_compatibles(tipo_destino, tipo2):
+        errores.append((operando2, f"El operando '{operando2}' es de tipo {tipo2}, no compatible con {tipo_destino}"))
+
+    if operador in COMPARADORES_INVALIDOS.get(tipo_destino, set()):
+        errores.append((operador, f"El operador '{operador}' no es compatible con {tipo_destino}"))           
+
+    return errores
+
+def _procesar_for_header(m_for, numero_linea, tabla_simbolos, tabla_errores, pila_for):
+    init_texto=m_for.group(1)
+    cond_texto=m_for.group(2)
+    incr_texto=m_for.group(3)
+
+    nombre_local = None
+
+    m_decl=re.match(declaracion_for, init_texto)
+    if m_decl:
+        tipo, nombre, valor = m_decl.group(1), m_decl.group(2), m_decl.group(3)
+        _procesar_declaracion(tipo, nombre, valor, numero_linea, tabla_simbolos, tabla_errores)
+        nombre_local=nombre
+    else:
+        tabla_errores.error_agregar(
+            init_texto, numero_linea,
+            f"La inicializacion del for no es una declaracion valida: '{init_texto}'",
+        )
+
+    m_cond = re.match(patron_condicion, cond_texto)
+    if m_cond:
+        if nombre_local and tabla_simbolos.si_existe(nombre_local):
+            op1, operador_comp, op2 = m_cond.group(1), m_cond.group(2), m_cond.group(3)
+            tipo_var = tabla_simbolos.obtener(nombre_local).tipo
+            for lexema_err, mensaje in evaluar_condicion(tipo_var, op1, operador_comp, op2, tabla_simbolos):
+                tabla_errores.error_agregar(lexema_err, numero_linea, mensaje)
+    else:
+        tabla_errores.error_agregar(
+            cond_texto, numero_linea,
+            f"La condicion del for no es valida: {cond_texto}",
+        )
+
+    m_incr_corto = re.match(patron_incremento_corto, incr_texto)
+    if m_incr_corto:
+        nombre_incr, op_incr = m_incr_corto.group(1), m_incr_corto.group(2)
+        valor_equivalente = f"{nombre_incr} + 1" if op_incr == "++" else f"{nombre_incr} - 1"
+        _procesar_asignacion(nombre_incr, valor_equivalente, numero_linea, tabla_simbolos, tabla_errores)
+    else:
+        m_incr_asig=re.match(asignacion_for, incr_texto)
+        if m_incr_asig:
+            nombre_incr, valor_incr = m_incr_asig.group(1), m_incr_asig.group(2)
+            _procesar_asignacion(nombre_incr, valor_incr, numero_linea, tabla_simbolos, tabla_errores)        
+        else:
+            tabla_errores.error_agregar(
+                incr_texto, numero_linea,
+                f"El incremento del for no es valido: {incr_texto}",
+            )                           
+
+    pila_for.append(nombre_local)
+
 #Funcion que "procesa" declarraciones en base a si estan bien o mal
 # el "_" en el nombre solo representa q la funcion como tal no "hace nada" por lo q no se deberia ejecutar sola (Buena practica)
 def _procesar_declaracion(tipo, nombre, valor, numero_linea, tabla_simbolos, tabla_errores):
     #Condicion que agrega a la tabla de errores como variable duplicada
     if tabla_simbolos.si_existe(nombre):
         tabla_errores.error_agregar(
+            nombre,
             numero_linea,
-            f"La variable '{nombre}' ya habia sido declarada",
-            "duplicado",
+            f"La variable {nombre} ya habia sido declarada"
         )
+
         return
     #Guarda el tipo de dato
     tipo_detectado = tipo_dato(valor)
     #Utiliza como tipo de dato y lo condiciona en base not y lo agrega como error en caso de incopatibildiad de tipos
     if not tipos_compatibles(tipo, tipo_detectado):
         tabla_errores.error_agregar(
+            valor,
             numero_linea,
-            f"Tipo incompatible: La variable '{nombre}' es de tipo {tipo}"
-            f"pero el valor '{valor}' no corresponde a ese tipo",
-            "tipo_incompatible",
+            f"Tipo incopatible: La variable {nombre} es de tipo {tipo}"
+            f"pero el valor {valor} no corresponde a ese tipo",
         )
         return
     #En caso que no haya errores agrega todo a la tabla de simbolos
@@ -199,9 +290,9 @@ def _procesar_declaracion_multiple(tipo, lista_nombres, numero_linea, tabla_simb
     for nombre in nombres:
         if tabla_simbolos.si_existe(nombre):
             tabla_errores.error_agregar(
+                nombre,
                 numero_linea,
-                f"La variable {nombre} ya habia sido declarada",
-                "duplicado",
+                f"La variable {nombre} ya habia sido delcarada"
             )
             continue
         tabla_simbolos.agregar(nombre, tipo, None, numero_linea)
@@ -212,9 +303,9 @@ def _procesar_asignacion(nombre, valor, numero_linea, tabla_simbolos, tabla_erro
     #Condicion que agerga a la tabla de errores como error de declaracion
     if not tabla_simbolos.si_existe(nombre):
         tabla_errores.error_agregar(
+            nombre,
             numero_linea,
             f"La variable '{nombre}' no ha sido declarada",
-            "no_declarada",
         )
         return
 
@@ -226,21 +317,16 @@ def _procesar_asignacion(nombre, valor, numero_linea, tabla_simbolos, tabla_erro
         operador = m_expr.group(2)
         operando2 = m_expr.group(3)
 
-        tipo_resultado, mensaje_error = evaluar_expresion(operando1, operador, operando2, tabla_simbolos)
+        errores_expresion = evaluar_expresion(simbolo.tipo, operando1, operador, operando2, tabla_simbolos)
 
-        if mensaje_error:
-            tabla_errores.error_agregar(numero_linea, mensaje_error, "tipo_incompatible")
+        if errores_expresion:
+            for lexema_error, mensaje in errores_expresion:
+                tabla_errores.error_agregar(lexema_error, numero_linea, mensaje)
             return
-        if tipo_resultado!= simbolo.tipo:
-            tabla_errores.error_agregar(
-                numero_linea, 
-                f"Tipo incompatible: {nombre} es de tipo {simbolo.tipo}"
-                f"pero la expresion {valor} da como resultado {tipo_resultado}",
-                "tipo_incompatible",
-            )
-            return
+
         tabla_simbolos.actualizar(nombre, valor)
         return
+     
     
     #Obtenemos el tipo de dato
     tipo_detectado = tipo_dato(valor)
@@ -248,10 +334,10 @@ def _procesar_asignacion(nombre, valor, numero_linea, tabla_simbolos, tabla_erro
     #Condicion que nos dice que si el tipo de dato no es el mismo que se detecto agrega a la tabla de errores como incompatible
     if not tipos_compatibles(simbolo.tipo, tipo_detectado):
         tabla_errores.error_agregar(
+            valor,
             numero_linea,
-            f"Tipo incompatible: '{nombre}' es de tipo {simbolo.tipo}"
+            f"Tipo incompatible: '{nombre}' es de tipo {simbolo.tipo} "
             f"pero se intento asignar el valor de '{valor}'",
-            "tipo_incompatible",
         )
 
         return
@@ -262,9 +348,27 @@ def _procesar_asignacion(nombre, valor, numero_linea, tabla_simbolos, tabla_erro
 def analizador(codigo, tabla_simbolos, tabla_errores):
     #Divide las lineas del codigo
     lineas = codigo.splitlines()
+    pila_for = []
 
     #Enumera las lineas y las guarda en "numero_linea" y "linea"
     for numero_linea, linea in enumerate(lineas, start=1):
+        linea_stripped=linea.strip()
+        m_for = re.match(for_header, linea_stripped)
+        if m_for:
+            _procesar_for_header(m_for, numero_linea, tabla_simbolos, tabla_errores, pila_for)
+            continue
+
+        if linea_stripped == "}":
+            if pila_for:
+                nombre_local = pila_for.pop()
+                if nombre_local:
+                    tabla_simbolos.eliminar(nombre_local)
+            else:
+                tabla_errores.error_agregar(
+                    "}", numero_linea,
+                    "Se encontro '}' sin un bloque abierto correspondiente",                   
+                )
+            continue
         #Guarda en la variable resultado todo lo hecho en la funcion reconocimiento
         resultado = reconocimiento(linea)
 
@@ -286,9 +390,9 @@ def analizador(codigo, tabla_simbolos, tabla_errores):
         #Condicion que nos dice que cualquier otra cosa la toma como error y la mete a la tabla de errores
         elif resultado[0] == "Linea no reconocida":
             tabla_errores.error_agregar(
+                linea.strip(),
                 numero_linea,
-                f"Instrucción no reconocida: '{linea.strip()}'",
-                "sintaxis",
+                f"Intruccion no reconocida: {linea.strip()}"
             )
 
 

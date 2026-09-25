@@ -12,14 +12,14 @@ class Lexema:
 #Clase que define los atributos de los errores
 class ErrorSem:
     #Constructor que inicaliza los atributos de la clase
-    def __init__(self, linea, tipo_error, descripcion):
+    def __init__(self, token, lexema, linea, descripcion):
+        self.token = token
         self.linea = linea
-        self.tipo_error = tipo_error
+        self.lexema = lexema
         self.descripcion = descripcion
     #Formato de impresion de error
     def __repr__(self):
-        return f"linea = {self.linea}, tipo = {self.tipo_error}, '{self.descripcion}')"
-
+        return f"{self.token} | {self.lexema} | {self.linea} | {self.descripcion}"
 #Clase que dfine las acciones de la tabla de simbolos
 class TablaSimbolos:
     #Inicializa el diccionario que se va a utilizar
@@ -43,6 +43,10 @@ class TablaSimbolos:
         if self.si_existe(nombre):
             self.simbolos[nombre].valor = new_valor
 
+    def eliminar(self, nombre):
+        if self.si_existe(nombre):
+            del self.simbolos[nombre]
+
     #Muestra la tabla en una lista
     def tabla(self):
         return list(self.simbolos.values())
@@ -53,9 +57,12 @@ class TablaError:
     #Constructor que inicia un array
     def __init__(self):
         self.error = []
+        self.contador_errores = 0
     #Agrega al array en base alos atributos definidos en la clase ErrorSem
-    def error_agregar(self, linea, descripcion, tipo_error):
-        self.error.append(ErrorSem(linea, tipo_error, descripcion))
+    def error_agregar(self, lexema, linea, descripcion):
+        self.contador_errores +=1
+        token = f"!err{self.contador_errores}"
+        self.error.append(ErrorSem(token, lexema, linea, descripcion))
     #Define si exsiten errores en base al tamaño del arreglo
     def si_existe_error(self):
         return len(self.error) > 0
