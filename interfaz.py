@@ -1,5 +1,8 @@
 import tkinter as tk
 from tkinter import ttk
+from Logica.analizador import obtener_lexemas
+from Logica.analizador import analizador as ejecutar_analisis
+from Logica.estructura import TablaSimbolos, TablaError, TablaFunciones
 
 class compilador:
   def __init__(self, root):
@@ -31,7 +34,7 @@ class compilador:
     contenedor_compi.pack(fill = "both", expand = True, padx = 20, pady = 10)
 
     # creación del apartado donde irán los números de línea
-    self.numeros = tk.Text(contenedor_compi, width = 4, padx = 4, takefocus = 0, border = 0, background = "#f0f0f0", state = 'disabled')
+    self.numeros = tk.Text(contenedor_compi, width = 4, padx = 4, takefocus = 0, border = 0, background = "#f0f0f0", state = 'disabled', font = ("Consolas", 11), spacing1=0, spacing2=0, spacing3=0)
     self.numeros.pack(side = "left", fill = "y")
 
     # scrollbar
@@ -39,7 +42,7 @@ class compilador:
     self.scrollbar.pack(side = "right", fill = "y")
 
     # área principal para el código
-    self.codigo_compi = tk.Text(contenedor_compi, wrap = "none", undo = True, font = ("Consolas", 11), yscrollcommand = self.scrollbar.set)
+    self.codigo_compi = tk.Text(contenedor_compi, wrap = "none", undo = True, font = ("Consolas", 11), yscrollcommand = self.scrollbar.set, spacing1=0, spacing2=0, spacing3=0)
     self.codigo_compi.pack(side = "left", fill = "both", expand = True)
 
     # se configura el scrollbar para que se mueva todo el contenido de nuestro contenedor
@@ -51,7 +54,7 @@ class compilador:
     self.codigo_compi.bind('<KeyRelease>', self.actualizar)
 
     # boton para compilar
-    self.boton = tk.Button(self.pantalla_compi, text = "Compilar", width = 15, font = ("Helvetica", 10), pady = 5)
+    self.boton = tk.Button(self.pantalla_compi, text = "Compilar", width = 15, font = ("Helvetica", 10), pady = 5, command = self.compilar)
     self.boton.pack(pady = 20)
 
     # parte derecha de la ventana
@@ -78,6 +81,10 @@ class compilador:
     self.columnas_simbolos.heading("Tipo de dato", text = "Tipo de dato")
     self.columnas_simbolos.column("Lexema", width = 150, anchor = "center")
     self.columnas_simbolos.column("Tipo de dato", width = 150, anchor = "center")
+
+    self.scroll_vertical_sim = tk.Scrollbar(self.tabla_simbolos, orient="vertical", command=self.columnas_simbolos.yview)
+    self.scroll_vertical_sim.pack(side="right", fill="y")
+
     self.columnas_simbolos.pack(fill = "both", expand = True, padx = 10, pady = 10)
 
     # apartado tabla de errores
@@ -96,21 +103,84 @@ class compilador:
     self.columnas_errores.heading("Línea error", text = "Línea error")
     self.columnas_errores.heading("Lexema", text = "Lexema")
     self.columnas_errores.heading("Descripción", text = "Descripción")
-    self.columnas_errores.column("Token error", width = 50, anchor = "center")
-    self.columnas_errores.column("Línea error", width = 50, anchor = "center")
-    self.columnas_errores.column("Lexema", width = 50, anchor = "center")
-    self.columnas_errores.column("Descripción", width = 200, anchor = "center")
+
+    self.columnas_errores.column("Token error", width = 80, anchor = "center", stretch = False)
+    self.columnas_errores.column("Línea error", width = 80, anchor = "center", stretch = False)
+    self.columnas_errores.column("Lexema", width = 80, anchor = "center", stretch = False)
+    self.columnas_errores.column("Descripción", width = 450, anchor = "center", stretch = False)
+
+    self.scroll_vertical_error = tk.Scrollbar(self.tabla_errores, orient = "vertical", command = self.columnas_errores.yview)
+    self.scroll_vertical_error.pack(side = "right", fill = "y")
+
+    self.scroll_horizontal_error = tk.Scrollbar(self.tabla_errores, orient = "horizontal", command = self.columnas_errores.xview)
+    self.scroll_horizontal_error.pack(side = "bottom", fill = "x")
+
+    self.columnas_errores.configure(
+        yscrollcommand = self.scroll_vertical_error.set,
+        xscrollcommand = self.scroll_horizontal_error.set
+    )
+
     self.columnas_errores.pack(fill = "both", expand = True, padx = 10, pady = 10)
 
     #luego agrego la lógica de esto teehee
   def sincronizar_scroll(self, *args):
-      pass
+      self.codigo_compi.yview(*args)
+      self.numeros.yview(*args)
 
   def on_modif(self, event):
-      pass
+      if self.codigo_compi.edit_modified():
+         self.actualizar()
+
+         self.codigo_compi.edit_modified(False)
 
   def actualizar(self, event = None):
-      pass
+      indice_final = self.codigo_compi.index('end-1c')
+      total_lineas = int(indice_final.split('.')[0])
+
+      self.numeros.config(state='normal')
+
+      self.numeros.delete("1.0", "end")
+
+      numeros_str = "\n".join(str(i) for i in range (1, total_lineas + 1))
+      self.numeros.insert("1.0", numeros_str)
+
+      self.numeros.config(state="disabled")
+
+  def compilar(self):
+
+    codigo = self.codigo_compi.get("1.0", "end-1c")
+
+    for item in self.columnas_simbolos.get_children():
+        self.columnas_simbolos.delete(item)
+    for item in self.columnas_errores.get_children():
+        self.columnas_errores.delete(item)
+
+    tabla_simbolos = TablaSimbolos()
+    tabla_errores = TablaError()
+    tabla_funciones = TablaFunciones()
+
+    ejecutar_analisis(codigo, tabla_simbolos, tabla_errores, tabla_funciones)
+
+    lineas_con_error = {err.linea for err in tabla_errores.tabla_err()}
+    lexemas = obtener_lexemas(codigo, tabla_simbolos, tabla_funciones, lineas_con_error)
+
+    for texto, tipo in lexemas:
+       tipo_mostrar = tipo if tipo else "-"
+       self.columnas_simbolos.insert(
+          "", "end",
+          values = (texto, tipo_mostrar)
+       )
+
+    for error in tabla_errores.tabla_err():
+       self.columnas_errores.insert(
+          "", "end",
+          values = (error.token, error.linea, error.lexema, error.descripcion)
+       )
+
+  def scroll_rueda(self, event):
+     self.codigo_compi.yview_scroll(int(-1 * (event.delta / 120)), "units")
+     self.numeros.yview_scroll(int(-1 * (event.delta / 120)), "units")
+     return "break"
 
 if __name__ == "__main__":
   root = tk.Tk ()
