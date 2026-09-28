@@ -25,6 +25,7 @@ class TablaSimbolos:
     #Inicializa el diccionario que se va a utilizar
     def __init__(self):
         self.simbolos = {}
+        self.historial_tipos = {}
 
     #Se asegura si el lexema esta en el deccionario devolviendo true o false
     def si_existe(self, nombre):
@@ -33,10 +34,14 @@ class TablaSimbolos:
     #Agrega al diccionario en base el nombre y los atributos declarados en la clase lexema
     def agregar(self, nombre, tipo, valor, linea):
         self.simbolos[nombre] = Lexema(nombre, tipo, valor, linea)
+        self.historial_tipos[nombre] = tipo
 
     #obtiene el nombre asociado al simbolo
     def obtener(self, nombre):
         return self.simbolos.get(nombre)
+
+    def tipo_historico(self, nombre):
+        return self.historial_tipos.get(nombre)
 
     #Actualiza el nombre del lexema en base a uno nuevo siempre y cuando el lexema exista
     def actualizar(self, nombre, new_valor):
@@ -46,6 +51,9 @@ class TablaSimbolos:
     def eliminar(self, nombre):
         if self.si_existe(nombre):
             del self.simbolos[nombre]
+
+    def restaurar(self, nombre, simbolo_backup):
+        self.simbolos[nombre] = simbolo_backup
 
     #Muestra la tabla en una lista
     def tabla(self):
@@ -69,6 +77,20 @@ class TablaError:
     #Devuelve en lista los errores
     def tabla_err(self):
         return list(self.error)
+
+class TablaFunciones:
+    def __init__(self):
+        self.funciones = {}
+
+    def existe(self, nombre):
+        return nombre in self.funciones
+    
+    def agregar(self, nombre, tipo_retorno):
+        self.funciones[nombre] = tipo_retorno
+
+    def obtener_tipo(self, nombre):
+        return self.funciones.get(nombre)
+
 
 
 

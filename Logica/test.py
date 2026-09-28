@@ -1,37 +1,50 @@
-from estructura import TablaError, TablaSimbolos
+from estructura import TablaError, TablaSimbolos, TablaFunciones
 from analizador import analizador, obtener_lexemas
 
-codigo_ejemplo = '''ETR !bar1 = 5;
-RN !bar2 = 3.5;
+codigo_ejemplo = """
+ETR !bar1 = 10;
+RN !bar2 = 2.5;
 CDNC !bar3 = "hola";
+ETR !bar4, !bar5;
 
-for(ETR !bar4 = 0; !bar4<5; !bar4++){
-!bar1 = !bar1 + 1;
+ETR !func1() {
+ETR !bar1 = 100;
+ETR !bar6 = !bar1 + 5;
+return !bar6;
 }
 
-for(RN !bar5 = 0.0; !bar5<=10.0; !bar5 = !bar5 + 2.5){
-for(ETR !bar6 = 0; !bar6<!bar1; !bar6++){
-!bar2 = !bar2 + 1.0;
+RN !func2() {
+return 3.14;
+}
+
+CDNC !func3() {
+return 5;
+}
+
+for(ETR !bar7 = 0; !bar7<5; !bar7++){
+!bar4 = !func1() + 1;
+for(ETR !bar8 = 0; !bar8<3; !bar8++){
+!bar5 = !bar7 + !bar8;
 }
 }
 
-!bar4 = 1;
-!bar6 = 1;
+!bar2 = !func2() * 2.0;
+!func1();
+!func9();
+!bar4 = !func3();
+!bar7 = 1;
+CDNC !bar9 = "a" + 5;
+"""
 
-for(CDNC !bar7 = "a"; !bar7<"z"; !bar7++){
-}
-
-for(ETR !bar8 = 10; !bar8>0; !bar8--){
-}
-'''
 
 
 ts = TablaSimbolos()
 te = TablaError()
+tf = TablaFunciones()
 
-analizador(codigo_ejemplo, ts, te)
+analizador(codigo_ejemplo, ts, te, tf)
 lineas_con_error = {error.linea for error in te.tabla_err()}
-lexemas = obtener_lexemas(codigo_ejemplo, ts, lineas_con_error)
+lexemas = obtener_lexemas(codigo_ejemplo, ts, tf, lineas_con_error)
 
 
 print("=== TABLA DE LEXEMAS ===")
