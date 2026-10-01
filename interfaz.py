@@ -9,7 +9,7 @@ class compilador:
     # definiendo tamaño de la ventana
     self.root = root
     self.root.title("Compilador")
-    self.root.geometry("1200x600")
+    self.root.state('zoomed')
 
     # configuración de la ventana con la clase frame, ya que es reutilizable
     pantalla_inicio = tk.Frame(root, padx=10, pady=10)
@@ -34,24 +34,33 @@ class compilador:
     contenedor_compi.pack(fill = "both", expand = True, padx = 20, pady = 10)
 
     # creación del apartado donde irán los números de línea
-    self.numeros = tk.Text(contenedor_compi, width = 4, padx = 4, takefocus = 0, border = 0, background = "#f0f0f0", state = 'disabled', font = ("Consolas", 11), spacing1=0, spacing2=0, spacing3=0)
-    self.numeros.pack(side = "left", fill = "y")
+    self.numeros = tk.Canvas(
+        contenedor_compi,
+        width=40,
+        background="#f0f0f0",
+        highlightthickness=0,
+        border=0
+    )
+    self.numeros.pack(side="left", fill="y")
 
     # scrollbar
     self.scrollbar = tk.Scrollbar(contenedor_compi, orient = "vertical")
     self.scrollbar.pack(side = "right", fill = "y")
 
     # área principal para el código
-    self.codigo_compi = tk.Text(contenedor_compi, wrap = "none", undo = True, font = ("Consolas", 11), yscrollcommand = self.scrollbar.set, spacing1=0, spacing2=0, spacing3=0)
+    self.codigo_compi = tk.Text(contenedor_compi, wrap = "none", undo = True, font = ("Consolas", 11), yscrollcommand = self.on_code_scroll, highlightthickness=0, spacing1=0, spacing2=0, spacing3=0)
     self.codigo_compi.pack(side = "left", fill = "both", expand = True)
 
     # se configura el scrollbar para que se mueva todo el contenido de nuestro contenedor
 
-    self.scrollbar.config(command = self.sincronizar_scroll)
+    self.scrollbar.config(command = self.codigo_compi.yview)
 
     # escucha cuando el texto es modificado
     self.codigo_compi.bind('<<Modified>>', self.on_modif)
     self.codigo_compi.bind('<KeyRelease>', self.actualizar)
+
+    self.codigo_compi.bind('<MouseWheel>', self.scroll_rueda)
+    self.numeros.bind('<MouseWheel>', self.scroll_rueda)
 
     # boton para compilar
     self.boton = tk.Button(self.pantalla_compi, text = "Compilar", width = 15, font = ("Helvetica", 10), pady = 5, command = self.compilar)
@@ -122,29 +131,35 @@ class compilador:
 
     self.columnas_errores.pack(fill = "both", expand = True, padx = 10, pady = 10)
 
-    #luego agrego la lógica de esto teehee
-  def sincronizar_scroll(self, *args):
-      self.codigo_compi.yview(*args)
-      self.numeros.yview(*args)
-
   def on_modif(self, event):
       if self.codigo_compi.edit_modified():
          self.actualizar()
 
          self.codigo_compi.edit_modified(False)
 
-  def actualizar(self, event = None):
-      indice_final = self.codigo_compi.index('end-1c')
-      total_lineas = int(indice_final.split('.')[0])
+  def actualizar(self, event=None):
+    # Limpiar el canvas
+    self.numeros.delete("all")
 
-      self.numeros.config(state='normal')
+    # Obtener la primera y última línea visibles
+    primera = self.codigo_compi.index("@0,0")
+    linea_ini = int(primera.split(".")[0])
 
-      self.numeros.delete("1.0", "end")
+    altura = self.codigo_compi.winfo_height()
+    ultima = self.codigo_compi.index(f"@0,{altura}")
+    linea_fin = int(ultima.split(".")[0])
 
-      numeros_str = "\n".join(str(i) for i in range (1, total_lineas + 1))
-      self.numeros.insert("1.0", numeros_str)
-
-      self.numeros.config(state="disabled")
+    for i in range(linea_ini, linea_fin + 2):
+        info = self.codigo_compi.dlineinfo(f"{i}.0")
+        if info:
+            x, y, ancho, alto, baseline = info
+            self.numeros.create_text(
+                35, y + 1,
+                text=str(i),
+                anchor="ne",
+                font=("Consolas", 11),
+                fill="#555"
+            )
 
   def compilar(self):
 
@@ -178,9 +193,13 @@ class compilador:
        )
 
   def scroll_rueda(self, event):
-     self.codigo_compi.yview_scroll(int(-1 * (event.delta / 120)), "units")
-     self.numeros.yview_scroll(int(-1 * (event.delta / 120)), "units")
+     delta = int(-1 * (event.delta / 120))
+     self.codigo_compi.yview_scroll(delta, "units")
      return "break"
+
+  def on_code_scroll(self, *args):
+    self.scrollbar.set(*args)
+    self.actualizar()
 
 if __name__ == "__main__":
   root = tk.Tk ()
