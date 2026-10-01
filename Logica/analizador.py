@@ -172,26 +172,44 @@ OPERADORES_INVALIDOS = {
     "CDNC": {"*", "/"},
 }
 
-def evaluar_expresion(tipo_destino, operando1, operador, operando2, tabla_simbolos, tabla_funciones=None):
+def evaluar_expresion(tipo_destino, valor_completo, tabla_simbolos, tabla_funciones=None):
+    patron_token = rf"(?P<OPERANDO>{operando})|(?P<OPERADOR>[+\-*/])|(?P<ESPACIO>\s+)"
+    tokens = []
+    pos = 0
+
+    for m in re.finditer(patron_token, valor_completo):
+        if m.start() != pos:
+            return [(valor_completo, f"La expresion '{valor_completo}' no tiene una forma valida")]
+        pos = m.end()
+        if m.lastgroup == "ESPACIO":
+            continue
+        tokens.append((m.lastgroup, m.group()))
+
+    if pos != len(valor_completo) or not tokens or tokens[0][0] != "OPERANDO":
+        return [(valor_completo, f"La expresion '{valor_completo}' no tiene una forma valida")]
+
     errores = []
+    esperado = "OPERANDO"
 
-    tipo1 = tipo_operando(operando1, tabla_simbolos, tabla_funciones)
-    if tipo1 is None:
-        errores.append((operando1, f"El operando {operando1} no fue declarado o no es un valor valida"))
-    elif not tipos_compatibles(tipo_destino, tipo1):
-        errores.append((operando1, f"El operando '{operando1}' es de tipo {tipo1}, no compatible con {tipo_destino}"))
+    for tipo_tok, texto_tok in tokens:
+        if tipo_tok != esperado:
+            return [(valor_completo, f"La expresion '{valor_completo}' no tiene una forma valida")]
+        if tipo_tok =="OPERANDO":
+            tipo_op =tipo_operando(texto_tok, tabla_simbolos, tabla_funciones)
+            if tipo_op is None:
+                errores.append((texto_tok, f"El operando '{texto_tok}' no fue declarado o no es un valor valido"))
+            elif not tipos_compatibles(tipo_destino, tipo_op):
+                errores.append((texto_tok, f"El operando '{texto_tok}' es de tipo {tipo_op}, no compatible con {tipo_destino}"))
+            esperado = "OPERADOR"
+        else:
+            if texto_tok in OPERADORES_INVALIDOS.get(tipo_destino, set()):
+                errores.append((texto_tok, f"El operador '{texto_tok}' no es compatible con {tipo_destino}"))
+            esperado = "OPERANDO"
 
-    tipo2 = tipo_operando(operando2, tabla_simbolos, tabla_funciones)
-    if tipo2 is None:
-        errores.append((operando2, f"El operando '{operando2}' no fue declarado o no es un valor valido"))
-    elif not tipos_compatibles(tipo_destino, tipo2):
-        errores.append((operando2, f"El operando '{operando2}' es de tipo {tipo2}, no compatible con {tipo_destino}"))
-
-    if operador in OPERADORES_INVALIDOS.get(tipo_destino, set()):
-        errores.append((operador, f"El operador '{operador}' no es compatible con {tipo_destino}"))
-
+    if esperado != "OPERADOR":
+        return [(valor_completo, f"La expresion '{valor_completo}' no tiene una forma valida")]
+    
     return errores
-
 
 def tipos_compatibles(tipo_esperado, tipo_valor):
     if tipo_valor is None:
@@ -236,29 +254,17 @@ def evaluar_condicion(tipo_destino, operando1, operador, operando2, tabla_simbol
     return errores
 
 def _declarar_variable_local(tipo, nombre, valor, numero_linea, tabla_simbolos, tabla_errores, tabla_funciones=None):
-    m_expr = re.match(patron_expresion, valor)
-    if m_expr:
-        operando1, operador, operando2 = m_expr.group(1), m_expr.group(2), m_expr.group(3)
 
-        errores_expresion = evaluar_expresion(tipo, operando1, operador, operando2, tabla_simbolos, tabla_funciones)
 
-        if errores_expresion:
-            for lexema_error, mensaje in errores_expresion:
-                tabla_errores.error_agregar(lexema_error, numero_linea, mensaje)
-            return False
-        tabla_simbolos.agregar(nombre, tipo, valor, numero_linea)
-        return True
+    errores_expresion = evaluar_expresion(tipo, valor, tabla_simbolos, tabla_funciones)
 
-    tipo_detectado = tipo_operando(valor, tabla_simbolos, tabla_funciones)
-    if not tipos_compatibles(tipo, tipo_detectado):
-        tabla_errores.error_agregar(
-            valor, numero_linea,
-            f"Tipo incompatible: La variable '{nombre}' es de tipo {tipo} "
-            f"pero el valor '{valor}' no corresponde a ese tipo",
-        )
+    if errores_expresion:
+        for lexema_error, mensaje in errores_expresion:
+            tabla_errores.error_agregar(lexema_error, numero_linea, mensaje)
         return False
     tabla_simbolos.agregar(nombre, tipo, valor, numero_linea)
     return True
+
 
 
 def _procesar_for_header(m_for, numero_linea, tabla_simbolos, tabla_errores, pila_ambitos, tabla_funciones=None):
@@ -345,23 +351,14 @@ def _procesar_return(valor_return, numero_linea, tabla_simbolos, tabla_errores, 
             "return usado fuera de una funcion",
         )
         return
+    
     tipo_retorno = ambito_actual["tipo_retorno"]
     nombre_funcion = ambito_actual["nombre_funcion"]
 
-    m_expr = re.match(patron_expresion, valor_return)
-    if m_expr:
-        operando1, operador, operando2 = m_expr.group(1), m_expr.group(2), m_expr.group(3)
-        for lexema_err, mensaje in evaluar_expresion(tipo_retorno, operando1, operador, operando2, tabla_simbolos, tabla_funciones):   
-            tabla_errores.error_agregar(lexema_err, numero_linea, mensaje)
-        return
+    errores_expresion = evaluar_expresion(tipo_retorno, valor_return, tabla_simbolos, tabla_funciones)
+    for lexema_err, mensaje in errores_expresion:
+        tabla_errores.error_agregar(lexema_err, numero_linea, mensaje)
 
-    tipo_valor = tipo_operando(valor_return, tabla_simbolos, tabla_funciones)
-    if not tipos_compatibles(tipo_retorno, tipo_valor):
-        tabla_errores.error_agregar(
-            valor_return, numero_linea,
-            f"El valor de retorno '{valor_return}' no es compatible con el tipo {tipo_retorno} "
-            f"de la funcion '{nombre_funcion}'",            
-        )
 
 #Funcion que "procesa" declarraciones en base a si estan bien o mal
 # el "_" en el nombre solo representa q la funcion como tal no "hace nada" por lo q no se deberia ejecutar sola (Buena practica)
@@ -388,33 +385,13 @@ def _procesar_declaracion(tipo, nombre, valor, numero_linea, tabla_simbolos, tab
         )
         return
 
-    m_expr = re.match(patron_expresion, valor)
-    if m_expr:
-        operando1 = m_expr.group(1)
-        operador = m_expr.group(2)
-        operando2 = m_expr.group(3)
-
-        errores_expresion = evaluar_expresion(tipo, operando1, operador, operando2, tabla_simbolos, tabla_funciones)
-        if errores_expresion:
-            for lexema_error, mensaje in errores_expresion:
-                tabla_errores.error_agregar(lexema_error, numero_linea, mensaje)
-            return
-        tabla_simbolos.agregar(nombre, tipo, valor, numero_linea)
+    errores_expresion = evaluar_expresion(tipo, valor, tabla_simbolos, tabla_funciones)   
+    if errores_expresion:
+        for lexema_error, mensaje in errores_expresion:
+            tabla_errores.error_agregar(lexema_error, numero_linea, mensaje)
         return
-    
-    #Guarda el tipo de dato
-    tipo_detectado = tipo_operando(valor, tabla_simbolos, tabla_funciones)
-    #Utiliza como tipo de dato y lo condiciona en base not y lo agrega como error en caso de incopatibildiad de tipos
-    if not tipos_compatibles(tipo, tipo_detectado):
-        tabla_errores.error_agregar(
-            valor,
-            numero_linea,
-            f"Tipo incopatible: La variable {nombre} es de tipo {tipo}"
-            f"pero el valor {valor} no corresponde a ese tipo",
-        )
-        return
-    #En caso que no haya errores agrega todo a la tabla de simbolos
     tabla_simbolos.agregar(nombre, tipo, valor, numero_linea)
+    
 
 def _procesar_declaracion_multiple(tipo, lista_nombres, numero_linea, tabla_simbolos, tabla_errores, ambito_local=None):
     nombres = [n.strip() for n in lista_nombres.split(",")]
@@ -444,7 +421,6 @@ def _procesar_declaracion_multiple(tipo, lista_nombres, numero_linea, tabla_simb
 #Funcion que "procesa" asignaciones en base a si estan bien o mal
 # el "_" en el nombre solo representa q la funcion como tal no "hace nada" por lo q no se deberia ejecutar sola (Buena practica)
 def _procesar_asignacion(nombre, valor, numero_linea, tabla_simbolos, tabla_errores, tabla_funciones=None):
-    #Condicion que agerga a la tabla de errores como error de declaracion
     if not tabla_simbolos.si_existe(nombre):
         tabla_errores.error_agregar(
             nombre,
@@ -453,39 +429,13 @@ def _procesar_asignacion(nombre, valor, numero_linea, tabla_simbolos, tabla_erro
         )
         return
 
-    #Dado el nombre en la tabla de simbolos
     simbolo = tabla_simbolos.obtener(nombre)
-    m_expr = re.match(patron_expresion, valor)
-    if m_expr:
-        operando1 = m_expr.group(1)
-        operador = m_expr.group(2)
-        operando2 = m_expr.group(3)
-
-        errores_expresion = evaluar_expresion(simbolo.tipo, operando1, operador, operando2, tabla_simbolos, tabla_funciones)
-
-        if errores_expresion:
-            for lexema_error, mensaje in errores_expresion:
-                tabla_errores.error_agregar(lexema_error, numero_linea, mensaje)
-            return
-
-        tabla_simbolos.actualizar(nombre, valor)
+    errores_expresion = evaluar_expresion(simbolo.tipo, valor, tabla_simbolos, tabla_funciones)
+    if errores_expresion:
+        for lexema_error, mensaje in errores_expresion:
+            tabla_errores.error_agregar(lexema_error, numero_linea, mensaje)
         return
-     
-    
-    #Obtenemos el tipo de dato
-    tipo_detectado = tipo_operando(valor, tabla_simbolos, tabla_funciones)
 
-    #Condicion que nos dice que si el tipo de dato no es el mismo que se detecto agrega a la tabla de errores como incompatible
-    if not tipos_compatibles(simbolo.tipo, tipo_detectado):
-        tabla_errores.error_agregar(
-            valor,
-            numero_linea,
-            f"Tipo incompatible: '{nombre}' es de tipo {simbolo.tipo} "
-            f"pero se intento asignar el valor de '{valor}'",
-        )
-
-        return
-    #Si todo esta bien utiliza la funcion de actualizar para actualizar la tabla de simbolos
     tabla_simbolos.actualizar(nombre, valor)
 
 #Es la funcion que "analiza" el codigo de input
