@@ -197,7 +197,11 @@ def evaluar_expresion(tipo_destino, valor_completo, tabla_simbolos, tabla_funcio
         if tipo_tok =="OPERANDO":
             tipo_op =tipo_operando(texto_tok, tabla_simbolos, tabla_funciones)
             if tipo_op is None:
-                errores.append((texto_tok, f"El operando '{texto_tok}' no fue declarado o no es un valor valido"))
+                if re.fullmatch(llamada_funcion, texto_tok):
+                    nombre_func = re.match(expresion_regular_funcion, texto_tok).group()
+                    errores.append((texto_tok, f"La funcion '{nombre_func}' no ha sido declarada"))
+                else:
+                    errores.append((texto_tok, f"El operando '{texto_tok}' no fue declarado o no es un valor valido"))
             elif not tipos_compatibles(tipo_destino, tipo_op):
                 errores.append((texto_tok, f"El operando '{texto_tok}' es de tipo {tipo_op}, no compatible con {tipo_destino}"))
             esperado = "OPERADOR"
