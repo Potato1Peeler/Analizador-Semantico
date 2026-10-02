@@ -176,8 +176,7 @@ class compilador:
 
     ejecutar_analisis(codigo, tabla_simbolos, tabla_errores, tabla_funciones)
 
-    lineas_con_error = {err.linea for err in tabla_errores.tabla_err()}
-    lexemas = obtener_lexemas(codigo, tabla_simbolos, tabla_funciones, lineas_con_error)
+    lexemas = obtener_lexemas(codigo, tabla_simbolos, tabla_funciones)
 
     for texto, tipo in lexemas:
        tipo_mostrar = tipo if tipo else "-"
