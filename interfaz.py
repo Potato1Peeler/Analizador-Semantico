@@ -1,8 +1,11 @@
 import tkinter as tk
 from tkinter import ttk
+from tkinter import messagebox
 from Logica.analizador import obtener_lexemas
 from Logica.analizador import analizador as ejecutar_analisis
 from Logica.estructura import TablaSimbolos, TablaError, TablaFunciones
+from Logica.codigo_intermedio import generar_codigo_intermedio
+
 
 class compilador:
   def __init__(self, root):
@@ -190,7 +193,13 @@ class compilador:
           "", "end",
           values = (error.token, error.linea, error.lexema, error.descripcion)
        )
-
+    try:
+       ruta = generar_codigo_intermedio(codigo, tabla_errores)
+       if ruta:
+          print(f"ruta: {ruta}")
+    except Exception as e:
+        messagebox.showwarning("Código intermedio", f"No se pudo guardar el Excel:\n{e}")
+        
   def scroll_rueda(self, event):
      delta = int(-1 * (event.delta / 120))
      self.codigo_compi.yview_scroll(delta, "units")
