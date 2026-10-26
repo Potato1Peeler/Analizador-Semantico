@@ -91,7 +91,7 @@ PATRON_LEXEMAS = re.compile(r"""
   | (?P<IDENTF>!func[1-9][0-9]*)
   | (?P<IDENT>!bar[1-9][0-9]*)
   | (?P<PALABRA>[A-Za-z_]+)
-  | (?P<OP>\+\+|--|<=|>=|==|!=|[+\-*/=<>])
+  | (?P<OP>\+\+|--|<=|>=|==|!=|&&|\|\||[+\-*/=<>])
   | (?P<DELIM>[(){},;])
   | (?P<ESPACIO>\s+)
   | (?P<OTRO>.)
@@ -172,48 +172,95 @@ OPERADORES_INVALIDOS = {
     "CDNC": {"*", "/"},
 }
 
-def evaluar_expresion(tipo_destino, valor_completo, tabla_simbolos, tabla_funciones=None):
-    patron_token = rf"(?P<OPERANDO>{operando})|(?P<OPERADOR>[+\-*/])|(?P<ESPACIO>\s+)"
+patron_token_expr = re.compile(
+    rf"(?P<OPERANDO>{operando})|(?P<OPERADOR>[+\-*/])|(?P<PAREN>[()])|(?P<ESPACIO>\s+)"
+)
+
+def tokenizar_expresion(valor):
     tokens = []
     pos = 0
-
-    for m in re.finditer(patron_token, valor_completo):
+    for m in patron_token_expr.finditer(valor):
         if m.start() != pos:
-            return [(valor_completo, f"La expresion '{valor_completo}' no tiene una forma valida")]
+            return None
         pos = m.end()
-        if m.lastgroup == "ESPACIO":
-            continue
-        tokens.append((m.lastgroup, m.group()))
+        if m.lastgroup != "ESPACIO":
+            tokens.append((m.lastgroup, m.group()))
+    if pos != len(valor) or not tokens:
+        return None
+    return tokens
 
-    if pos != len(valor_completo) or not tokens or tokens[0][0] != "OPERANDO":
-        return [(valor_completo, f"La expresion '{valor_completo}' no tiene una forma valida")]
-
+def validar_estructura_expresion(tokens):
     errores = []
-    esperado = "OPERANDO"
+    pila_parentesis = []
+    esperando_operando = True
+    anterior = None
 
-    for tipo_tok, texto_tok in tokens:
-        if tipo_tok != esperado:
-            return [(valor_completo, f"La expresion '{valor_completo}' no tiene una forma valida")]
-        if tipo_tok =="OPERANDO":
-            tipo_op =tipo_operando(texto_tok, tabla_simbolos, tabla_funciones)
+    for i, (tipo, texto) in enumerate(tokens):
+        if esperando_operando:
+            if tipo == "OPERANDO":
+                esperando_operando = False
+            elif texto == "(":
+                pila_parentesis.append(i)
+            elif tipo == "OPERADOR":
+                errores.append((i, texto, f"El operador '{texto}' no tiene operando a su izquierda"))
+            else:
+                if anterior == "(":
+                    errores.append((i, "()", "Parentesis vacios, falta una expresion dentro"))
+                else:
+                    errores.append((i, ")", "Falta un operando antes de ')'"))
+                if pila_parentesis:
+                    pila_parentesis.pop()
+                else:
+                    errores.append((i, ")", "Parentesis ')' sin su '(' de apertura"))
+                esperando_operando = False
+        else:
+            if tipo == "OPERADOR":
+                esperando_operando = True
+            elif texto == ")":
+                if pila_parentesis:
+                    pila_parentesis.pop()
+                else:
+                    errores.append((i, ")", "Parentesis ')' sin su '(' de apertura"))
+            elif tipo == "OPERANDO":
+                errores.append((i, texto, f"Falta un operador antes de '{texto}'"))
+            else:
+                errores.append((i, "(", "Falta un operador antes de '('"))
+                pila_parentesis.append(i)
+                esperando_operando = True
+        anterior = texto
+
+    if esperando_operando and tokens and tokens[-1][1] != "(":
+        ultimo = tokens[-1][1]
+        errores.append((len(tokens), ultimo, f"Falta un operando despues de '{ultimo}'"))
+
+    for i in pila_parentesis:
+        errores.append((i, "(", "Parentesis '(' sin su ')' de cierre"))
+
+    return errores
+
+def evaluar_expresion(tipo_destino, valor_completo, tabla_simbolos, tabla_funciones=None):
+    tokens = tokenizar_expresion(valor_completo)
+    if tokens is None:
+        return [(valor_completo, f"La expresion '{valor_completo}' no tiene una forma valida")]
+    errores = [(i, 0, lexema, mensaje) for i, lexema, mensaje in validar_estructura_expresion(tokens)]
+
+    for i, (tipo_tok, texto_tok) in enumerate(tokens):
+        if tipo_tok == "OPERANDO":
+            tipo_op = tipo_operando(texto_tok, tabla_simbolos, tabla_funciones)
             if tipo_op is None:
                 if re.fullmatch(llamada_funcion, texto_tok):
                     nombre_func = re.match(expresion_regular_funcion, texto_tok).group()
-                    errores.append((texto_tok, f"La funcion '{nombre_func}' no ha sido declarada"))
+                    errores.append((i, 1, texto_tok, f"La funcion '{nombre_func}' no ha sido declarada"))
                 else:
-                    errores.append((texto_tok, f"El operando '{texto_tok}' no fue declarado o no es un valor valido"))
+                    errores.append((i, 1, texto_tok, f"El operando '{texto_tok}' no fue declarado o no es un valor valido"))
             elif not tipos_compatibles(tipo_destino, tipo_op):
-                errores.append((texto_tok, f"El operando '{texto_tok}' es de tipo {tipo_op}, no compatible con {tipo_destino}"))
-            esperado = "OPERADOR"
-        else:
+                errores.append((i, 1, texto_tok, f"El operando '{texto_tok}' es de tipo {tipo_op}, no compatible con {tipo_destino}"))
+        elif tipo_tok == "OPERADOR":
             if texto_tok in OPERADORES_INVALIDOS.get(tipo_destino, set()):
-                errores.append((texto_tok, f"El operador '{texto_tok}' no es compatible con {tipo_destino}"))
-            esperado = "OPERANDO"
+                errores.append((i, 1, texto_tok, f"El operador '{texto_tok}' no es compatible con {tipo_destino}"))
 
-    if esperado != "OPERADOR":
-        return [(valor_completo, f"La expresion '{valor_completo}' no tiene una forma valida")]
-    
-    return errores
+    errores.sort(key=lambda e: (e[0], e[1]))
+    return [(lexema, mensaje) for _, _, lexema, mensaje in errores]
 
 def tipos_compatibles(tipo_esperado, tipo_valor):
     if tipo_valor is None:
@@ -257,6 +304,146 @@ def evaluar_condicion(tipo_destino, operando1, operador, operando2, tabla_simbol
 
     return errores
 
+patron_token_cond = re.compile(
+    rf"(?P<OPERANDO>{operando})|(?P<COMP>{operador_comparacion})|(?P<LOGICO>&&|\|\|)"
+    rf"|(?P<PAREN>[()])|(?P<ESPACIO>\s+)|(?P<DESCONOCIDO>\S)"
+)
+
+def tokenizar_condicion(valor):
+    tokens = []
+    for m in patron_token_cond.finditer(valor):
+        if m.lastgroup != "ESPACIO":
+            tokens.append((m.lastgroup, m.group()))
+    return tokens
+
+def validar_estructura_condicion(tokens):
+    errores = []
+    pila = []
+    estado = "IZQ"
+    anterior = None
+    idx_anterior = -1
+    def cerrar(i):
+        if pila:
+            pila.pop()
+        else:
+            errores.append((i, ")", "Parentesis ')' sin su '(' de apertura"))
+
+    for i, (tipo, texto) in enumerate(tokens):
+        if tipo == "DESCONOCIDO":
+            errores.append((i, texto, f"Simbolo no reconocido '{texto}' en la condicion"))
+            continue
+
+        if estado == "IZQ":
+            if tipo == "OPERANDO":
+                estado = "COMP"
+            elif texto == "(":
+                pila.append(i)
+            elif tipo == "COMP":
+                errores.append((i, texto, f"El comparador '{texto}' no tiene operando a su izquierda"))
+                estado = "DER"
+            elif tipo == "LOGICO":
+                errores.append((i, texto, f"El operador '{texto}' no tiene una condicion a su izquierda"))
+            else:
+                if anterior == "(":
+                    errores.append((i, "()", "Parentesis vacios, falta una condicion dentro"))
+                else:
+                    errores.append((i, ")", "Falta una condicion antes de ')'"))
+                cerrar(i)
+                estado = "FIN"
+        elif estado == "COMP":
+            if tipo == "COMP":
+                estado = "DER"
+            else: 
+                errores.append((idx_anterior, anterior, f"Falta un comparador despues de '{anterior}'"))
+                if tipo == "LOGICO":
+                    estado = "IZQ"
+                elif texto == "(":
+                    pila.append(i)
+                    estado = "IZQ"
+                elif texto == ")":
+                    cerrar(i)
+                    estado = "FIN"
+
+        elif estado == "DER":
+            if tipo == "OPERANDO":
+                estado = "FIN"
+            elif texto == "(":
+                errores.append((i, "(", f"Despues de '{anterior}' debe ir un operando, no un parentesis"))
+                pila.append(i)
+            else:
+                errores.append((idx_anterior, anterior, f"Falta un operando despues de '{anterior}'"))
+                if tipo == "LOGICO":
+                    estado = "IZQ"
+                elif texto == ")":
+                    cerrar(i)
+                    estado = "FIN"
+
+        else:
+            if tipo == "LOGICO":
+                estado = "IZQ"
+            elif texto == ")":
+                cerrar(i)
+            elif tipo == "COMP":
+                errores.append((i, texto, f"No se pueden encadenar comparaciones con '{texto}', use && o ||"))
+                estado = "DER"
+            elif tipo == "OPERANDO":
+                errores.append((i, texto, f"Falta && o || antes de '{texto}'"))
+                estado = "COMP"
+            else:
+                errores.append((i, "(", "Falta && o || antes de '('"))
+                pila.append(i)
+                estado = "IZQ"
+        anterior = texto
+        idx_anterior = i
+
+    if anterior is not None:
+        if estado == "COMP":
+            errores.append((idx_anterior, anterior, f"Falta un comparador despues de '{anterior}'"))
+        elif estado == "DER":
+            errores.append((idx_anterior, anterior, f"Falta un operando despues de '{anterior}'"))
+        elif estado == "IZQ" and anterior != "(":
+            errores.append((idx_anterior, anterior, f"Falta una condicion despues de '{anterior}'"))
+
+    for i in pila:
+        errores.append((i, "(", "Parentesis '(' sin su ')' de cierre"))
+
+    return errores
+
+def _error_operando_desconocido(texto):
+    if re.fullmatch(llamada_funcion, texto):
+        nombre = re.match(expresion_regular_funcion, texto).group()
+        return f"La funcion '{nombre}' no ha sido declarada"
+    return f"El operando '{texto}' no fue declarado o no es un valor valido"
+
+def evaluar_condicion_compuesta(valor, tabla_simbolos, tabla_funciones=None, validar_tipos=True):
+    tokens = tokenizar_condicion(valor)
+    errores = [(i, 0, lex, msg) for i, lex, msg in validar_estructura_condicion(tokens)]
+
+    if validar_tipos:
+        for i, (tipo_tok, texto_tok) in enumerate(tokens):
+            if tipo_tok != "COMP" or i == 0 or i == len(tokens) -1:
+                continue
+            if tokens[i - 1][0] != "OPERANDO" or tokens[i+1][0] != "OPERANDO":
+                continue
+            op1, op2 = tokens[i-1][1], tokens[i+1][1]
+            tipo1 = tipo_operando(op1, tabla_simbolos, tabla_funciones)
+            tipo2 = tipo_operando(op2, tabla_simbolos, tabla_funciones)
+
+            if tipo1 is None:
+                errores.append((i - 1, 1, op1, _error_operando_desconocido(op1)))
+            if tipo2 is None:
+                errores.append((i + 1, 1, op2, _error_operando_desconocido(op2)))
+            if tipo1 is not None:
+                if tipo2 is not None and not tipos_compatibles(tipo1, tipo2):
+                    errores.append((i + 1, 1, op2, f"El operando '{op2}' es de tipo {tipo2}, no compatible con {tipo1}"))
+                if texto_tok in COMPARADORES_INVALIDOS.get(tipo1, set()):
+                    errores.append((i, 1, texto_tok, f"El operador '{texto_tok}' no es compatible con {tipo1}"))
+
+    errores.sort(key=lambda e: (e[0], e[1]))
+    return [(lexema, mensaje) for _, _, lexema, mensaje in errores]
+
+
+
 def _declarar_variable_local(tipo, nombre, valor, numero_linea, tabla_simbolos, tabla_errores, tabla_funciones=None):
 
 
@@ -294,18 +481,9 @@ def _procesar_for_header(m_for, numero_linea, tabla_simbolos, tabla_errores, pil
             f"La inicializacion del for no es una declaracion valida: '{init_texto}'",
         )
 
-    m_cond = re.match(patron_condicion, cond_texto)
-    if m_cond:
-        if nombre_local and tabla_simbolos.si_existe(nombre_local):
-            op1, operador_comp, op2 = m_cond.group(1), m_cond.group(2), m_cond.group(3)
-            tipo_var = tabla_simbolos.obtener(nombre_local).tipo
-            for lexema_err, mensaje in evaluar_condicion(tipo_var, op1, operador_comp, op2, tabla_simbolos, tabla_funciones):
-                tabla_errores.error_agregar(lexema_err, numero_linea, mensaje)
-    else:
-        tabla_errores.error_agregar(
-            cond_texto, numero_linea,
-            f"La condicion del for no es valida: {cond_texto}",
-        )
+    variable_valida = bool(nombre_local and tabla_simbolos.si_existe(nombre_local))
+    for lexema_err, mensaje in evaluar_condicion_compuesta(cond_texto, tabla_simbolos, tabla_funciones, validar_tipos=variable_valida):
+        tabla_errores.error_agregar(lexema_err, numero_linea, mensaje)
 
     m_incr_corto = re.match(patron_incremento_corto, incr_texto)
     if m_incr_corto:
