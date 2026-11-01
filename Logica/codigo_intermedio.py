@@ -4,15 +4,15 @@ from openpyxl.styles import Font
 
 try:
     from Logica.analizador import (
-        reconocimiento, for_header, func_header, patron_return, declaracion_for, asignacion_for, patron_incremento_corto, patron_condicion, operando, tokenizar_expresion, validar_estructura_expresion, tokenizar_condicion, validar_estructura_condicion,
+        reconocimiento, for_header, func_header, patron_return, declaracion_for, asignacion_for, patron_incremento_corto, patron_condicion, operando, tokenizar_expresion, validar_estructura_expresion, tokenizar_condicion, validar_estructura_condicion, llamada_funcion, expresion_regular_funcion, expresion_regular,
     )
 except ImportError:
     from analizador import (
-        reconocimiento, for_header, func_header, patron_return, declaracion_for, asignacion_for, patron_incremento_corto, patron_condicion, operando, tokenizar_expresion, validar_estructura_expresion, tokenizar_condicion, validar_estructura_condicion,
+        reconocimiento, for_header, func_header, patron_return, declaracion_for, asignacion_for, patron_incremento_corto, patron_condicion, operando, tokenizar_expresion, validar_estructura_expresion, tokenizar_condicion, validar_estructura_condicion, llamada_funcion, expresion_regular_funcion, expresion_regular,
     )
 
 
-PRECEDENCIA = {"*": 5, "/": 5, "+": 4, "-": 4,
+PRECEDENCIA = {"*": 5, "/": 5, "%":5, "+": 4, "-": 4,
                "<": 3, ">": 3, "<=": 3, ">=": 3, "==": 3, "!=": 3,
                "&&": 2, "||": 1}
 #PATRON_TOKEN = re.compile(rf"(?P<OPERANDO>{operando})|(?P<OPERADOR>[+\-*/])|(?P<ESPACIO>\s+)")
@@ -23,7 +23,7 @@ class Triplos:
         self.posfijos = []
         self.contador_temporales = 0
         self.libres = []
-        self.numericos = set()
+        self.funciones = {}
     def _nuevo_temporal(self):
         if self.libres:
             self.libres.sort(key=lambda t: int(t[1:]))
@@ -32,7 +32,6 @@ class Triplos:
         return f"T{self.contador_temporales}"
 
     def _liberar(self, temporal):
-        self.numericos.discard(temporal)
         self.libres.append(temporal)
     def _es_temporal(self, texto):
         return re.fullmatch(r"T\d+", texto) is not None
@@ -76,32 +75,100 @@ class Triplos:
                    continue
                derecho = pila.pop()
                izquierdo = pila.pop()
-               izq_temp = self._es_temporal(izquierdo)
-               der_temp = self._es_temporal(derecho)
-               numerico = texto in ("*", "/") or izquierdo in self.numericos or derecho in self.numericos
-    
-               if izq_temp:
+
+               if self._es_temporal(izquierdo):
                    resultado = izquierdo
                    self._emitir(resultado, derecho, texto)
-                   if der_temp:
-                       self._liberar(derecho)
-               elif der_temp and (texto == "*" or (texto == "+" and derecho in self.numericos)):
-                   resultado = derecho
-                   self._emitir(resultado, izquierdo, texto)
                else:
                    resultado = self._nuevo_temporal()
                    self._emitir(resultado, izquierdo, "=")
                    self._emitir(resultado, derecho, texto)
-                   if der_temp:
-                       self._liberar(derecho)
-               if numerico:
-                   self.numericos.add(resultado)
+               if self._es_temporal(derecho):
+                   self._liberar(derecho)
                pila.append(resultado)
            return pila.pop()
-    
+
+    def parchear_salto(self, indices, destino):
+        for i in indices:
+            objeto, _, operador = self.triplos[i]
+            self.triplos[i] = (objeto, destino ,operador)
+
+    def iniciar_funcion(self, nombre, dinamico, parametros):
+        self._emitir("", None, "JMP")
+        self.funciones[nombre] = {
+            "salto_inicial": len(self.triplos) -1,
+            "inicio": self.siguiente_fila(),
+            "slot": None,
+            "fin_jmp": None,
+            "dinamico": dinamico,
+            "ret_var": f"ret_{nombre}",
+            "parametros": parametros,
+        }
+    def registrar_return(self, renglon, nombre_funcion, valor):
+        info = self.funciones[nombre_funcion]
+        if re.fullmatch(expresion_regular, valor):
+            info["slot"] = valor
+        else:
+            self.traducir_asignacion(renglon, nombre_funcion, valor)
+            info["slot"] = nombre_funcion
+
+    def cerrar_funcion(self, nombre):
+        info  = self.funciones[nombre]
+        if info["slot"] is None:
+            info["slot"] = nombre
+        if info["dinamico"]:
+            self._emitir("", info["ret_var"], "JMP")
+        else:
+            self._emitir("", None, "JMP")
+        info["fin_jmp"] = len(self.triplos) - 1
+        self.parchear_salto([info["salto_inicial"]], self.siguiente_fila())
+
+    def emitir_llamada(self, nombre, args_str):
+        info = self.funciones.get(nombre)
+        if info is None:
+            raise ValueError(f"Funcion no valida: {nombre}")
+        args = [a.strip() for a in args_str.split(",")] if args_str.strip() else []
+        params = info.get("parametros", [])        
+
+        for arg, param in zip(args, params):
+            resultado_arg = self.traducir_expresion(arg)
+            if not self._es_temporal(resultado_arg):
+                temporal = self._nuevo_temporal()
+                self._emitir(temporal, resultado_arg, "=")
+                resultado_arg = temporal
+
+            self._emitir(param, resultado_arg, "=")
+            self._liberar(resultado_arg)
+
+        if info["dinamico"]:
+            fila_retorno = self.siguiente_fila() + 3
+            temporal = self._nuevo_temporal()
+            self._emitir(temporal, str(fila_retorno), "=")
+            self._emitir(info["ret_var"], temporal, "=")
+            self._liberar(temporal)
+            self._emitir("", info["inicio"], "JMP")
+        else:
+            self._emitir("", info["inicio"], "JMP")
+            if info["fin_jmp"] is not None:
+                self.parchear_salto([info["fin_jmp"]], self.siguiente_fila())
+        return info["slot"] if info["slot"] is not None else nombre
+
+    def _resolver_operando(self, texto):
+        if re.fullmatch(llamada_funcion, texto):
+            m = re.match(rf"({expresion_regular_funcion})\s*\((.*?)\)", texto)
+            return self.emitir_llamada(m.group(1), m.group(2))        
+        return texto
+
+    def _resolver_llamadas(self, tokens):
+        return [(tipo, self._resolver_operando(texto) if tipo == "OPERANDO" else texto) for tipo, texto in tokens]
+
+    def traducir_llamada(self, renglon, nombre, arg_str):
+        self.emitir_llamada(nombre, arg_str) 
+
     def traducir_asignacion(self, renglon, destino, valor):
         tokens = self._tokenizador(valor)
-        posfija = self._a_posfija(tokens)
+        posfija_original = self._a_posfija(tokens)
+        posfija = self._a_posfija(self._resolver_llamadas(tokens))
         resultado = self._generar_desde_posfija(posfija)
         if not self._es_temporal(resultado):
             temporal = self._nuevo_temporal()
@@ -109,7 +176,7 @@ class Triplos:
             resultado = temporal
         self._emitir(destino, resultado, "=")
         self._liberar(resultado)
-        texto_posfijo= " ".join(t for _, t in posfija)
+        texto_posfijo = " ".join(t for _, t in posfija_original)
         self.posfijos.append((renglon, f"{destino} = {valor}", f"{destino} {texto_posfijo} ="))
 
 
@@ -140,6 +207,8 @@ class Triplos:
                 der = pila.pop()
                 izq = pila.pop()
                 inicio = self.siguiente_fila()
+                izq = self._resolver_operando(izq)
+                der = self._resolver_operando(der)
                 temporal = self._nuevo_temporal()
                 self._emitir(temporal, izq, "=")
                 self._emitir(temporal, der, texto)
@@ -152,6 +221,11 @@ class Triplos:
         texto_posfijo = " ".join(t for _, t in posfija)
         self.posfijos.append((renglon, texto_condicion, texto_posfijo))
         return pila.pop()
+    
+    def traducir_expresion(self, valor):
+        tokens = self._tokenizador(valor)
+        posfija = self._a_posfija(self._resolver_llamadas(tokens))
+        return self._generar_desde_posfija(posfija)
         
 def _abrir_for(gen, renglon, m_for):
     init_texto, cond_texto, incr_texto = m_for.group(1), m_for.group(2), m_for.group(3)
@@ -218,41 +292,77 @@ def guardar_excel(gen, ruta_excel):
 
     wb.save(ruta_excel)
 
-def generar_codigo_intermedio(codigo, tabla_errores=None, ruta_excel="codigo_intermedio.xlsx", solo_si_sin_errores=True):
+def generar_codigo_intermedio(codigo, tabla_errores=None, ruta_excel="codigo_intermedio.xlsx", solo_si_sin_errores=False):
     errores = tabla_errores.tabla_err() if tabla_errores else []
     if errores and solo_si_sin_errores:
         return None
     lineas_con_error = {e.linea for e in errores}
 
+    lineas = codigo.splitlines()
+    conteo_llamadas = {}
+    for l in lineas:
+        m = re.match(func_header, l.strip())
+        if m:
+            conteo_llamadas[m.group(2)] = 0
+    for nombre in conteo_llamadas:
+        patron = re.escape(nombre) + r"\s*\(.*?\)"
+        conteo_llamadas[nombre] = sum(len(re.findall(patron, l)) for l in lineas if not re.match(func_header, l.strip()))
     gen= Triplos()
-    #Cada bloque abierto es un diccionario: tipo ("for"/"funcion"), si se omite, y el contexto del for
     pila_bloques = []
 
-    for renglon, linea in enumerate(codigo.splitlines(), start=1):
+    for renglon, linea in enumerate(lineas, start = 1):
         ls = linea.strip()
-        en_omision = any(b["omitido"] for b in pila_bloques)   #las funciones aun no se traducen
+        en_omision = any(b["omitido"] or b.get("muerto") for b in pila_bloques)
         traducir = renglon not in lineas_con_error and not en_omision
 
         m_for = re.match(for_header, ls)
         if m_for:
             if traducir:
-                pila_bloques.append({"tipo": "for", "omitido": False, "ctx": _abrir_for(gen, renglon, m_for)})
+                pila_bloques.append({"tipo": "for", "omitido": False, "ctx": _abrir_for(gen, renglon, m_for)})   
             else:
                 pila_bloques.append({"tipo": "for", "omitido": True, "ctx": None})
             continue
-        if re.match(func_header, ls):
-            pila_bloques.append({"tipo": "funcion", "omitido": True, "ctx": None})
+        m_func = re.match(func_header, ls)
+        if m_func:
+            nombre = m_func.group(2)
+            parms_str = m_func.group(3).strip()
+            parms_nombres = []
+            if parms_str:
+                for p in parms_str.split(","):
+                    m_p = re.match(rf"^(ETR|RN|CDNC)\s+({expresion_regular})$", p.strip())
+                    if m_p:
+                        parms_nombres.append(m_p.group(2))
+            if traducir:
+                gen.iniciar_funcion(nombre, conteo_llamadas.get(nombre, 0) > 1, parms_nombres)
+                pila_bloques.append({"tipo": "funcion", "omitido": False, "ctx": nombre, "muerto": False})
+            else:
+                pila_bloques.append({"tipo": "funcion", "omitido": True, "ctx": None})
             continue
         if ls == "}":
             if pila_bloques:
                 bloque = pila_bloques.pop()
-                if bloque["tipo"] == "for" and not bloque["omitido"]:
+                if bloque["omitido"]:
+                    pass
+                elif bloque["tipo"] == "for":
                     _cerrar_for(gen, bloque["ctx"])
+                elif bloque["tipo"] == "funcion":
+                    gen.cerrar_funcion(bloque["ctx"])
             continue
 
-        if re.match(patron_return, ls) or not traducir:
+        m_return = re.match(patron_return, ls)
+        if m_return:
+            if traducir:
+                for bloque in reversed(pila_bloques):
+                    if bloque["tipo"] == "funcion":
+                        try:
+                            gen.registrar_return(renglon, bloque["ctx"], m_return.group(1))
+                            bloque["muerto"] = True
+                        except ValueError:
+                            pass
+                        break
             continue
-
+        if not traducir:
+            continue
         resultado = reconocimiento(linea)
         try:
             if resultado[0] == "Declaracion":
@@ -261,6 +371,9 @@ def generar_codigo_intermedio(codigo, tabla_errores=None, ruta_excel="codigo_int
             elif resultado[0] == "Asignacion":
                 _, nombre, valor = resultado
                 gen.traducir_asignacion(renglon, nombre, valor)
+            elif resultado[0] == "LlamadaFuncion":
+                _, nombre, args_str = resultado
+                gen.traducir_llamada(renglon, nombre, args_str) 
         except ValueError:
             continue
 

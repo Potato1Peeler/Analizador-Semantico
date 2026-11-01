@@ -85,11 +85,17 @@ class TablaFunciones:
     def existe(self, nombre):
         return nombre in self.funciones
     
-    def agregar(self, nombre, tipo_retorno):
-        self.funciones[nombre] = tipo_retorno
+    def agregar(self, nombre, tipo_retorno, parametros = None, tipo_parametros = None):
+        self.funciones[nombre] = {
+            "tipo_retorno": tipo_retorno,
+            "parametros": parametros or [],
+            "tipos_parametros": tipo_parametros or []
+        }
 
     def obtener_tipo(self, nombre):
-        return self.funciones.get(nombre)
+        if nombre in self.funciones:
+            return self.funciones[nombre]["tipo_retorno"]
+        return None
 
 
 

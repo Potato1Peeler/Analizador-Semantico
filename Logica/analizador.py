@@ -8,7 +8,7 @@ tipos_datps_validos= {
 #Expresion regular de variables
 expresion_regular = r"!bar[1-9][0-9]*"
 
-expresion_regular_funcion = r"!func[1-9][0-9]*"
+expresion_regular_funcion = r"!bar[1-9][0-9]*"
 
 lista_identificadores = rf"{expresion_regular}(?:\s*,\s*{expresion_regular})*"
 
@@ -29,9 +29,11 @@ real = r"^\d+\.\d+$"
 #Patron de match, cadena
 cadena = r'^".*"$'
 
-llamada_funcion = rf"{expresion_regular_funcion}\s*\(\s*\)"
+llamada_funcion = rf"{expresion_regular_funcion}\s*\(.*?\)"
 
 patron_llamada_statement = rf"^({expresion_regular_funcion})\s*\(\s*\)\s*;$"
+
+patron_return = r"^return\s+(.+?)\s*;$"
 
 #Funcion para reconocer las lineas del codigo
 def reconocimiento(linea):
@@ -59,7 +61,8 @@ def reconocimiento(linea):
     m_llamada=re.match(patron_llamada_statement, linea)
     if m_llamada: 
         nombre_funcion = m_llamada.group(1)
-        return ("LlamadaFuncion", nombre_funcion)
+        args_str = m_llamada.group(2)
+        return ("LlamadaFuncion", nombre_funcion, args_str)
     
     #variable q usa el .match para ver si se cumplio la expresion regular de asignacion
     asig = re.match(asignacion, linea)
@@ -88,10 +91,9 @@ PATRON_LEXEMAS = re.compile(r"""
   | (?P<CADENA>"[^"]*")
   | (?P<REAL>\d+\.\d+)
   | (?P<ENTERO>\d+)
-  | (?P<IDENTF>!func[1-9][0-9]*)
   | (?P<IDENT>!bar[1-9][0-9]*)
   | (?P<PALABRA>[A-Za-z_]+)
-  | (?P<OP>\+\+|--|<=|>=|==|!=|&&|\|\||[+\-*/=<>])
+  | (?P<OP>\+\+|--|<=|>=|==|!=|&&|\|\||[+\-*/=<>%])
   | (?P<DELIM>[(){},;])
   | (?P<ESPACIO>\s+)
   | (?P<OTRO>.)
@@ -114,7 +116,7 @@ def obtener_lexemas(codigo, tabla_simbolos, tabla_funciones = None, lineas_con_e
         if numero_linea in lineas_con_error:
             continue
         #No consideramos los espacios vacios como lexemas asi q los ignora
-        if categoria == "ESPACIO":
+        if categoria in ("ESPACIO", "OP", "DELIM", "OTRO", "PALARBA"):
             continue  
 
         #Si esta en el diccionario se ignora
@@ -127,13 +129,14 @@ def obtener_lexemas(codigo, tabla_simbolos, tabla_funciones = None, lineas_con_e
 
         #Condicion para identificar si una variable ya fue declarada, si no se le pone none
         elif categoria == "IDENT":
-            simbolo = tabla_simbolos.obtener(texto)
-            if simbolo:
-                tipo =simbolo.tipo
+            if tabla_funciones and tabla_funciones.existe(texto):
+                tipo = tabla_funciones.obtener_tipo(texto)
             else:
-                tipo=tabla_simbolos.tipo_historico(texto)
-        elif categoria =="IDENTF":
-            tipo = tabla_funciones.obtener_tipo(texto) if tabla_funciones else None
+                simbolo = tabla_simbolos.obtener(texto)
+                if simbolo:
+                    tipo = simbolo.tipo
+                else:
+                    tipo = tabla_simbolos.tipo_historico(texto)
 
         #Si el lexema es un dato en sí, usamos la misma categoria que las variables
         elif categoria in ("ENTERO", "REAL", "CADENA"):
@@ -169,11 +172,11 @@ def tipo_operando(texto, tabla_simbolos, tabla_funciones = None):
 OPERADORES_INVALIDOS = {
     "ETR": {"/"},
     "RN": set(),
-    "CDNC": {"*", "/"},
+    "CDNC": {"*", "/", "%"},
 }
 
 patron_token_expr = re.compile(
-    rf"(?P<OPERANDO>{operando})|(?P<OPERADOR>[+\-*/])|(?P<PAREN>[()])|(?P<ESPACIO>\s+)"
+    rf"(?P<OPERANDO>{operando})|(?P<OPERADOR>[+\-*/%])|(?P<PAREN>[()])|(?P<ESPACIO>\s+)"
 )
 
 def tokenizar_expresion(valor):
@@ -255,6 +258,21 @@ def evaluar_expresion(tipo_destino, valor_completo, tabla_simbolos, tabla_funcio
                     errores.append((i, 1, texto_tok, f"El operando '{texto_tok}' no fue declarado o no es un valor valido"))
             elif not tipos_compatibles(tipo_destino, tipo_op):
                 errores.append((i, 1, texto_tok, f"El operando '{texto_tok}' es de tipo {tipo_op}, no compatible con {tipo_destino}"))
+
+            if re.fullmatch(llamada_funcion, texto_tok) and tipo_op is not None:
+                m = re.match(rf"({expresion_regular_funcion})\s*\((.*?)\)", texto_tok)    
+                nombre_func = m.group(1)
+                args_str = m.group(2).strip()
+                info = tabla_funciones.funciones[nombre_func]
+                args = [a.strip() for a in args_str.split(",")] if args_str else []
+                if len(args) != len(info["parametros"]):
+                    errores.append((i, 1, texto_tok, f"La funcion '{nombre_func}' espera {len(info['parametros'])} argumentos, se pasaron {len(args)}"))
+                else:
+                    for arg, tipo_p in zip(args, info["tipos_parametros"]):
+                        errs = evaluar_expresion(tipo_p, arg, tabla_simbolos, tabla_funciones)
+                        for err_lex, err_msg in errs:
+                            errores.append((i, 1, err_lex, err_msg))
+
         elif tipo_tok == "OPERADOR":
             if texto_tok in OPERADORES_INVALIDOS.get(tipo_destino, set()):
                 errores.append((i, 1, texto_tok, f"El operador '{texto_tok}' no es compatible con {tipo_destino}"))
@@ -471,7 +489,14 @@ def _procesar_for_header(m_for, numero_linea, tabla_simbolos, tabla_errores, pil
     if m_decl:
         tipo, nombre, valor = m_decl.group(1), m_decl.group(2), m_decl.group(3)
         respaldo = tabla_simbolos.obtener(nombre)
-        exito = _declarar_variable_local(tipo, nombre, valor, numero_linea, tabla_simbolos, tabla_errores, tabla_funciones)  
+        if tabla_funciones is not None and tabla_funciones.existe(nombre):
+            tabla_errores.error_agregar(
+                nombre, numero_linea,
+                f"El nombre {nombre} ya esta en uso como funcion, no puede ser una variable",
+            )
+            exito = False
+        else:
+            exito = _declarar_variable_local(tipo, nombre, valor, numero_linea, tabla_simbolos, tabla_errores, tabla_funciones)            
         if exito:    
             nombre_local=nombre
             ambito["variables"][nombre] = respaldo
@@ -503,20 +528,36 @@ def _procesar_for_header(m_for, numero_linea, tabla_simbolos, tabla_errores, pil
 
     pila_ambitos.append(ambito)
 
-func_header = rf"^(ETR|RN|CDNC)\s+({expresion_regular_funcion})\s*\(\s*\)\s*\{{\s*$"
-patron_return = r"^return\s+(.+?)\s*;$"
+func_header = rf"^(ETR|RN|CDNC)\s+({expresion_regular_funcion})\s*\((.*?)\)\s*\{{\s*$"
+llamada_funcion = rf"{expresion_regular_funcion}\s*\(.*?\)"
+patron_llamada_statement = rf"^({expresion_regular_funcion})\s*\((.*?)\)\s*;$"
 
-def _procesar_func_header(m_func, numero_linea, tabla_funciones, tabla_errores, pila_ambitos):
+def _procesar_func_header(m_func, numero_linea, tabla_funciones, tabla_errores, pila_ambitos, tabla_simbolos=None):    
     tipo_retorno = m_func.group(1)
     nombre_funcion = m_func.group(2)
+    params_str = m_func.group(3).strip()
+
+    params_nombres = []
+    params_tipos = []
+    if params_str:
+        for p in params_str.split(","):
+            m_p = re.match(rf"^(ETR|RN|CDNC)\s+({expresion_regular})$", p.strip())
+            if m_p:
+                params_nombres.append(m_p.group(2))
+                params_tipos.append(m_p.group(1))
 
     if tabla_funciones.existe(nombre_funcion):
         tabla_errores.error_agregar(
             nombre_funcion, numero_linea,
             f"La funcion {nombre_funcion} ya habia sido declarada",
         )
+    elif tabla_simbolos is not None and tabla_simbolos.si_existe(nombre_funcion):
+        tabla_errores.error_agregar(
+            nombre_funcion, numero_linea,
+            f"El nombre {nombre_funcion} ya esta en uso como variable, no puede ser una funcion",
+        )
     else:
-        tabla_funciones.agregar(nombre_funcion, tipo_retorno)
+        tabla_funciones.agregar(nombre_funcion, tipo_retorno, params_nombres, params_tipos)
 
     ambito = {
         "tipo": "funcion",
@@ -524,6 +565,12 @@ def _procesar_func_header(m_func, numero_linea, tabla_funciones, tabla_errores, 
         "tipo_retorno": tipo_retorno,
         "nombre_funcion": nombre_funcion,
     }
+
+    for p_nombre, p_tipo in zip(params_nombres, params_tipos):
+        if tabla_simbolos is not None:
+            respaldo = tabla_simbolos.obtener(p_nombre)
+            tabla_simbolos.agregar(p_nombre, p_tipo, None, numero_linea)
+            ambito["variables"][p_nombre] = respaldo
     pila_ambitos.append(ambito)
 
 def _procesar_return(valor_return, numero_linea, tabla_simbolos, tabla_errores, tabla_funciones, ambito_actual):
@@ -545,6 +592,12 @@ def _procesar_return(valor_return, numero_linea, tabla_simbolos, tabla_errores, 
 #Funcion que "procesa" declarraciones en base a si estan bien o mal
 # el "_" en el nombre solo representa q la funcion como tal no "hace nada" por lo q no se deberia ejecutar sola (Buena practica)
 def _procesar_declaracion(tipo, nombre, valor, numero_linea, tabla_simbolos, tabla_errores, tabla_funciones=None, ambito_local=None):
+    if tabla_funciones is not None and tabla_funciones.existe(nombre):
+        tabla_errores.error_agregar(
+            nombre, numero_linea,
+            f"El nombre {nombre} ya esta en uso como funcion, no puede ser una variable",
+        )
+        return
     if ambito_local is not None:
         if nombre in ambito_local:
             tabla_errores.error_agregar(
@@ -575,10 +628,16 @@ def _procesar_declaracion(tipo, nombre, valor, numero_linea, tabla_simbolos, tab
     tabla_simbolos.agregar(nombre, tipo, valor, numero_linea)
     
 
-def _procesar_declaracion_multiple(tipo, lista_nombres, numero_linea, tabla_simbolos, tabla_errores, ambito_local=None):
+def _procesar_declaracion_multiple(tipo, lista_nombres, numero_linea, tabla_simbolos, tabla_errores, ambito_local=None, tabla_funciones=None):
     nombres = [n.strip() for n in lista_nombres.split(",")]
 
     for nombre in nombres:
+        if tabla_funciones is not None and tabla_funciones.existe(nombre):
+            tabla_errores.error_agregar(
+                nombre, numero_linea,
+                f"El nombre {nombre} ya esta en uso como funcion, no puede ser una variable",
+            )
+            continue
         if ambito_local is not None:
             if nombre in ambito_local:
                 tabla_errores.error_agregar(
@@ -636,7 +695,7 @@ def analizador(codigo, tabla_simbolos, tabla_errores, tabla_funciones = None):
 
         m_func= re.match(func_header, linea_stripped)
         if m_func:
-            _procesar_func_header(m_func, numero_linea, tabla_funciones, tabla_errores, pila_ambitos)
+            _procesar_func_header(m_func, numero_linea, tabla_funciones, tabla_errores, pila_ambitos, tabla_simbolos)            
             continue
 
         if linea_stripped == "}":
@@ -673,14 +732,25 @@ def analizador(codigo, tabla_simbolos, tabla_errores, tabla_funciones = None):
             _procesar_declaracion(tipo, nombre, valor, numero_linea, tabla_simbolos, tabla_errores, tabla_funciones, ambito_actual)
         elif resultado[0] == "DeclaracionMultiple":
             _, tipo, lista_nombres = resultado
-            _procesar_declaracion_multiple(tipo, lista_nombres, numero_linea, tabla_simbolos, tabla_errores, ambito_actual)
+            _procesar_declaracion_multiple(tipo, lista_nombres, numero_linea, tabla_simbolos, tabla_errores, ambito_actual, tabla_funciones)            
         elif resultado[0] == "LlamadaFuncion":
-            _, nombre_funcion = resultado
+            _, nombre_funcion, args_str = resultado
             if not tabla_funciones or not tabla_funciones.existe(nombre_funcion):
                 tabla_errores.error_agregar(
                     nombre_funcion, numero_linea,
                     f"La funcion {nombre_funcion} no ha sido declarada",
                 )
+            else:
+                info = tabla_funciones.funciones[nombre_funcion]
+                args = [a.strip() for a in args_str.split(",")] if args_str.strip() else []
+                if len(args) != len(info["parametros"]):
+                    tabla_errores.error_agregar(nombre_funcion, numero_linea, f"La funcion '{nombre_funcion}' espera {len(info['parametros'])} argumentos, se pasaron {len(args)}")
+                else:
+                    for arg, tipo_p in zip(args, info["tipos_parametros"]):
+                        errs = evaluar_expresion(tipo_p, arg, tabla_simbolos, tabla_funciones)
+                        for err_lex, err_msg in errs:
+                            tabla_errores.error_agregar(err_lex, numero_linea, err_msg)
+
         #Condicion que clasifica como "Asignacion" y ejecuta la funcion de esta
         elif resultado[0] == "Asignacion":
             _, nombre, valor = resultado
