@@ -255,7 +255,7 @@ def evaluar_expresion(tipo_destino, valor_completo, tabla_simbolos, tabla_funcio
                     nombre_func = re.match(expresion_regular_funcion, texto_tok).group()
                     errores.append((i, 1, texto_tok, f"La funcion '{nombre_func}' no ha sido declarada"))
                 else:
-                    errores.append((i, 1, texto_tok, f"El operando '{texto_tok}' no fue declarado o no es un valor valido"))
+                    errores.append((i, 1, texto_tok, f"El operando '{texto_tok}' no fue declarado"))
             elif not tipos_compatibles(tipo_destino, tipo_op):
                 errores.append((i, 1, texto_tok, f"El operando '{texto_tok}' es de tipo {tipo_op}, no compatible con {tipo_destino}"))
 
@@ -307,13 +307,13 @@ def evaluar_condicion(tipo_destino, operando1, operador, operando2, tabla_simbol
 
     tipo1 = tipo_operando(operando1, tabla_simbolos, tabla_funciones)
     if tipo1 is None:
-        errores.append((operando1, f"El operando '{operando1}' no fue declarado o no es un valor valido"))
+        errores.append((operando1, f"El operando '{operando1}' no fue declarado"))
     elif not tipos_compatibles(tipo_destino, tipo1):
         errores.append((operando1, f"El operando '{operando1}' es de tipo {tipo1}, no compatible con {tipo_destino}"))
 
     tipo2 = tipo_operando(operando2, tabla_simbolos, tabla_funciones)
     if tipo2 is None:
-        errores.append((operando2, f"El operando '{operando2}' no fue declarado o no es un valor valido"))
+        errores.append((operando2, f"El operando '{operando2}' no fue declarado"))
     elif not tipos_compatibles(tipo_destino, tipo2):
         errores.append((operando2, f"El operando '{operando2}' es de tipo {tipo2}, no compatible con {tipo_destino}"))
 
@@ -431,7 +431,7 @@ def _error_operando_desconocido(texto):
     if re.fullmatch(llamada_funcion, texto):
         nombre = re.match(expresion_regular_funcion, texto).group()
         return f"La funcion '{nombre}' no ha sido declarada"
-    return f"El operando '{texto}' no fue declarado o no es un valor valido"
+    return f"El operando '{texto}' no fue declarado"
 
 def evaluar_condicion_compuesta(valor, tabla_simbolos, tabla_funciones=None, validar_tipos=True):
     tokens = tokenizar_condicion(valor)

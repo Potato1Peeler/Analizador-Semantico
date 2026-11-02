@@ -100,7 +100,7 @@ class Triplos:
             "inicio": self.siguiente_fila(),
             "slot": None,
             "fin_jmp": None,
-            "dinamico": dinamico,
+            "dinamico": False,
             "ret_var": f"ret_{nombre}",
             "parametros": parametros,
         }
