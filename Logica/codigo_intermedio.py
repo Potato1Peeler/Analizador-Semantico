@@ -296,7 +296,7 @@ def generar_codigo_intermedio(codigo, tabla_errores=None, ruta_excel="codigo_int
     errores = tabla_errores.tabla_err() if tabla_errores else []
     if errores and solo_si_sin_errores:
         return None
-    lineas_con_error = {e.linea for e in errores}
+    # lineas_con_error = {e.linea for e in errores}
 
     lineas = codigo.splitlines()
     conteo_llamadas = {}
@@ -313,7 +313,8 @@ def generar_codigo_intermedio(codigo, tabla_errores=None, ruta_excel="codigo_int
     for renglon, linea in enumerate(lineas, start = 1):
         ls = linea.strip()
         en_omision = any(b["omitido"] or b.get("muerto") for b in pila_bloques)
-        traducir = renglon not in lineas_con_error and not en_omision
+        #traducir = renglon not in lineas_con_error and not en_omision
+        traducir = not en_omision
 
         m_for = re.match(for_header, ls)
         if m_for:

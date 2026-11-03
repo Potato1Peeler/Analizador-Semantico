@@ -177,7 +177,10 @@ class compilador:
     tabla_errores = TablaError()
     tabla_funciones = TablaFunciones()
 
-    ejecutar_analisis(codigo, tabla_simbolos, tabla_errores, tabla_funciones)
+    try:
+        ejecutar_analisis(codigo, tabla_simbolos, tabla_errores, tabla_funciones)
+    except:
+       print("prueba")
 
     lexemas = obtener_lexemas(codigo, tabla_simbolos, tabla_funciones)
 
