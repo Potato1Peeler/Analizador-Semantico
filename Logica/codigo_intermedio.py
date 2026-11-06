@@ -88,6 +88,40 @@ class Triplos:
                pila.append(resultado)
            return pila.pop()
 
+    def _evaluar_parentesis_primero(self, tokens):
+        while True:
+            inicio =-1
+            for i, (tipo, texto) in enumerate(tokens):
+                if texto == "(":
+                    inicio = i
+                    break
+            if inicio == -1:
+                break
+
+            balance = 1
+            fin = -1
+            for i in range(inicio +1, len(tokens)):
+                if tokens[i][1] == "(":
+                    balance +=1
+                elif tokens[i][1] == ")":
+                    balance -=1
+                    if balance == 0:
+                        fin = i
+                        break
+            if fin == -1:
+                break
+
+            sub_tokens = tokens[inicio + 1 : fin]
+            if sub_tokens:
+                posfija_sub = self._a_posfija(sub_tokens)
+                temporal = self._generar_desde_posfija(posfija_sub)
+
+                tokens = tokens[:inicio] + [("OPERANDO", temporal)] + tokens[fin + 1:]
+            else:
+                tokens = tokens[:inicio] + tokens[fin +1:]
+        return tokens
+
+
     def parchear_salto(self, indices, destino):
         for i in indices:
             objeto, _, operador = self.triplos[i]
@@ -168,6 +202,8 @@ class Triplos:
     def traducir_asignacion(self, renglon, destino, valor):
         tokens = self._tokenizador(valor)
         posfija_original = self._a_posfija(tokens)
+        tokens = self._resolver_llamadas(tokens)
+        tokens = self._evaluar_parentesis_primero(tokens)
         posfija = self._a_posfija(self._resolver_llamadas(tokens))
         resultado = self._generar_desde_posfija(posfija)
         if not self._es_temporal(resultado):
@@ -224,6 +260,8 @@ class Triplos:
     
     def traducir_expresion(self, valor):
         tokens = self._tokenizador(valor)
+        tokens = self._resolver_llamadas(tokens)
+        tokens = self._evaluar_parentesis_primero(tokens)
         posfija = self._a_posfija(self._resolver_llamadas(tokens))
         return self._generar_desde_posfija(posfija)
         
