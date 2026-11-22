@@ -2,6 +2,8 @@ import re
 from openpyxl import Workbook
 from openpyxl.styles import Font
 
+from Logica.optimizador import optimizar_codigo_muerto
+
 try:
     from Logica.analizador import (
         reconocimiento, for_header, func_header, patron_return, declaracion_for, asignacion_for, patron_incremento_corto, patron_condicion, operando, tokenizar_expresion, validar_estructura_expresion, tokenizar_condicion, validar_estructura_condicion, llamada_funcion, expresion_regular_funcion, expresion_regular,
@@ -24,6 +26,7 @@ class Triplos:
         self.contador_temporales = 0
         self.libres = []
         self.funciones = {}
+        self.renglon_actual = 0
     def _nuevo_temporal(self):
         if self.libres:
             self.libres.sort(key=lambda t: int(t[1:]))
@@ -36,7 +39,7 @@ class Triplos:
     def _es_temporal(self, texto):
         return re.fullmatch(r"T\d+", texto) is not None
     def _emitir(self, objeto, fuente, operador):
-        self.triplos.append((objeto, fuente, operador))
+        self.triplos.append((objeto, fuente, operador, self.renglon_actual))
     def siguiente_fila(self):
         return len(self.triplos) + 1
     def parchear(self, indices, destino):
@@ -305,30 +308,42 @@ def _escribir_fila(hoja, fila, valores, negrita = False):
         if negrita:
             celda.font=Font(bold=True)
 
-def guardar_excel(gen, ruta_excel):
+def guardar_excel(gen, ruta_excel, codigo_original):
     wb = Workbook()
 
-    hoja = wb.active
-    hoja.title= "Tabla de Triplos"
-    _escribir_fila(hoja, 1, ["#", "Dato objeto", "Dato fuente", "Operador"], negrita=True)
-    for i, (objeto, fuente, operador) in enumerate(gen.triplos, start=1):
-        _escribir_fila(hoja, i + 1, [i, objeto, fuente, operador])
+    triplos_opt = optimizar_codigo_muerto(gen.triplos)
+    
+    hoja_opt = wb.active
+    hoja_opt.title = "Triplo Optimizado"
+    _escribir_fila(hoja_opt, 1, ["#", "Dato objeto", "Dato fuente", "Operador"], negrita=True)
+    
+    for i, (objeto, fuente, operador, _) in enumerate(triplos_opt, start=1):
+        _escribir_fila(hoja_opt, i + 1, [i, objeto, fuente, operador])
         
-    for letra, ancho in zip("ABCD", (6,16,16,10)):
-        hoja.column_dimensions[letra].width = ancho
+    for letra, ancho in zip("ABCD", (6, 16, 16, 10)):
+        hoja_opt.column_dimensions[letra].width = ancho
 
-    fin = len(gen.triplos) + 1
-    if any(fuente in ("TRUE", "FALSE") and operador == fin for _, fuente, operador in gen.triplos):
-        _escribir_fila(hoja, fin + 1, [fin, None, None, None])
+    hoja_cod = wb.create_sheet("Codigo Fuente Optimizado")
+    _escribir_fila(hoja_cod, 1, ["#", "Código Optimizado"], negrita=True)
+    
+    renglones_vivos = {t[3] for t in triplos_opt if t[3] > 0}
+    lineas_originales = codigo_original.splitlines()
+    
+    fila_excel = 2
+    contador_lineas = 1
+    for i, linea in enumerate(lineas_originales, start=1):
+        if i in renglones_vivos:
+            _escribir_fila(hoja_cod, fila_excel, [contador_lineas, linea.strip()])
+            fila_excel += 1
+            contador_lineas += 1
+            
+    hoja_cod.column_dimensions["A"].width = 12
+    hoja_cod.column_dimensions["B"].width = 50
 
-    # hoja2 =wb.create_sheet("posfija")
-    # _escribir_fila(hoja2, 1, ["Renglon", "Instruccion", "Notacion posfija"], negrita=True)
-    # for i, (renglon, instruccion, posfija) in enumerate(gen.posfijos, start=2):
-    #     _escribir_fila(hoja2, i, [renglon, instruccion, posfija])
-    # for letra, ancho in zip("ABCD", (9,32,32)):
-    #     hoja2.column_dimensions[letra].width = ancho
-
-    wb.save(ruta_excel)
+    try:
+        wb.save(ruta_excel)
+    except PermissionError:
+        raise PermissionError("El archivo de Excel está abierto. Ciérralo para poder generar el nuevo código.")
 
 def generar_codigo_intermedio(codigo, tabla_errores=None, ruta_excel="codigo_intermedio.xlsx", solo_si_sin_errores=False):
     errores = tabla_errores.tabla_err() if tabla_errores else []
@@ -350,6 +365,7 @@ def generar_codigo_intermedio(codigo, tabla_errores=None, ruta_excel="codigo_int
 
     for renglon, linea in enumerate(lineas, start = 1):
         ls = linea.strip()
+        gen.renglon_actual = renglon
         en_omision = any(b["omitido"] or b.get("muerto") for b in pila_bloques)
         #traducir = renglon not in lineas_con_error and not en_omision
         traducir = not en_omision
@@ -416,7 +432,7 @@ def generar_codigo_intermedio(codigo, tabla_errores=None, ruta_excel="codigo_int
         except ValueError:
             continue
 
-    guardar_excel(gen, ruta_excel)
+    guardar_excel(gen, ruta_excel, codigo)
     return ruta_excel
 
 
