@@ -44,8 +44,8 @@ class Triplos:
         return len(self.triplos) + 1
     def parchear(self, indices, destino):
         for i in indices:
-            objeto, fuente, _ = self.triplos[i]
-            self.triplos[i] = (objeto, fuente, destino)
+            objeto, fuente, _, renglon = self.triplos[i]
+            self.triplos[i] = (objeto, fuente, destino, renglon)
     def _tokenizador(self, valor):
         tokens = tokenizar_expresion(valor)
         if tokens is None or validar_estructura_expresion(tokens):
@@ -127,8 +127,8 @@ class Triplos:
 
     def parchear_salto(self, indices, destino):
         for i in indices:
-            objeto, _, operador = self.triplos[i]
-            self.triplos[i] = (objeto, destino ,operador)
+            objeto, _, operador, renglon = self.triplos[i]
+            self.triplos[i] = (objeto, destino ,operador, renglon)
 
     def iniciar_funcion(self, nombre, dinamico, parametros):
         self._emitir("", None, "JMP")

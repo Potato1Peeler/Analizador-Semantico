@@ -6,6 +6,7 @@ def es_temporal(texto):
 def optimizar_codigo_muerto(triplos):
     if not triplos:
         return []
+    
     vivos = set()
     conservados = []
     ultimo_idx = len(triplos) - 1
@@ -13,7 +14,8 @@ def optimizar_codigo_muerto(triplos):
     for idx in range(len(triplos) - 1, -1, -1):
         obj, fuente, op, renglon = triplos[idx]
 
-        if op in ("JMP", "TRUE", "FALSE"):
+
+        if op == "JMP" or str(fuente) in ("TRUE", "FALSE"):
             conservados.append((obj, fuente, op, renglon))
             if fuente and isinstance(fuente, str) and str(fuente) not in ("TRUE", "FALSE"):
                 vivos.add(fuente)
@@ -26,12 +28,10 @@ def optimizar_codigo_muerto(triplos):
             if fuente and isinstance(fuente, str) and str(fuente) not in ("TRUE", "FALSE"):
                 vivos.add(fuente)
             continue
-
         if obj not in vivos:
-            continue # Se elimina
-
+            continue
         conservados.append((obj, fuente, op, renglon))
-        
+
         if op == "=":
             vivos.discard(obj)
         
