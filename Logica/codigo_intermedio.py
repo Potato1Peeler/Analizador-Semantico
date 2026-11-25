@@ -27,6 +27,7 @@ class Triplos:
         self.libres = []
         self.funciones = {}
         self.renglon_actual = 0
+        self.returns = []
     def _nuevo_temporal(self):
         if self.libres:
             self.libres.sort(key=lambda t: int(t[1:]))
@@ -140,6 +141,7 @@ class Triplos:
             "dinamico": False,
             "ret_var": f"ret_{nombre}",
             "parametros": parametros,
+            "renglon": self.renglon_actual,
         }
     def registrar_return(self, renglon, nombre_funcion, valor):
         info = self.funciones[nombre_funcion]
@@ -148,6 +150,7 @@ class Triplos:
         else:
             self.traducir_asignacion(renglon, nombre_funcion, valor)
             info["slot"] = nombre_funcion
+        self.returns.append((renglon, nombre_funcion))
 
     def cerrar_funcion(self, nombre):
         info  = self.funciones[nombre]
@@ -327,6 +330,9 @@ def guardar_excel(gen, ruta_excel, codigo_original):
     _escribir_fila(hoja_cod, 1, ["#", "Código Optimizado"], negrita=True)
     
     renglones_vivos = {t[3] for t in triplos_opt if t[3] > 0}
+    for renglon_ret, nombre_fn in gen.returns:
+        if gen.funciones[nombre_fn]["renglon"] in renglones_vivos:
+            renglones_vivos.add(renglon_ret)
     lineas_originales = codigo_original.splitlines()
     
     fila_excel = 2
